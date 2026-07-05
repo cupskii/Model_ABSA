@@ -9,6 +9,15 @@ Tanggung jawab tambahan dibanding pipeline/train_model.py:
   - Mengembalikan dict ringan (tanpa objek model) agar dapat disimpan sebagai
     Metaflow artifact lintas step — model disimpan ke disk oleh pipeline/train_model.py
     dan dimuat ulang oleh tahap evaluate_model.
+
+GPU lokal vs Modal
+------------------
+run_train_model() mendeteksi torch.cuda.is_available() dan memilih otomatis:
+  - Ada GPU lokal   → latih langsung (_train_local), seperti sebelumnya.
+  - Tidak ada GPU   → delegasikan ke GPU cloud Modal (_train_remote), lihat
+    modal_app.py. Checkpoint yang dihasilkan Modal diunduh kembali ke
+    save_dir lokal sehingga evaluate_step/validate_model/register_model
+    tetap bekerja tanpa perubahan.
 """
 
 import os
@@ -17,6 +26,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..'))
 
 import mlflow
 import mlflow.pytorch
+import torch
 
 from model.absa_model import set_seed
 from pipeline.train_model import train_model
@@ -25,11 +35,8 @@ from run_experiment import flatten_config, get_git_commit
 
 def run_train_model(model_config: dict, data: dict) -> dict:
     """
-    Latih model dan catat eksperimen ke MLflow.
-
-    Membuka satu MLflow run yang akan dilanjutkan oleh tahap evaluate_model
-    (via mlflow.start_run(run_id=...)) untuk mencatat metrik test set dalam
-    run yang sama.
+    Latih model ABSA — otomatis memilih lokal (kalau ada GPU) atau delegasi
+    ke GPU cloud Modal (kalau tidak ada GPU lokal, mis. laptop tanpa GPU).
 
     Parameters
     ----------
@@ -43,6 +50,60 @@ def run_train_model(model_config: dict, data: dict) -> dict:
       save_dir        : str   — direktori checkpoint model
       best_val_f1     : float — Sentiment F1 terbaik pada validation set
       best_val_det_f1 : float — Detection F1 pada epoch terbaik
+    """
+    if torch.cuda.is_available():
+        return _train_local(model_config, data)
+    return _train_remote(model_config, data)
+
+
+def _train_remote(model_config: dict, data: dict) -> dict:
+    """
+    Delegasikan pelatihan ke GPU cloud Modal (modal_app.py::train_remote)
+    saat tidak ada GPU lokal tersedia. Model dilatih dan checkpoint-nya
+    diunggah ke MLflow oleh Modal; di sini checkpoint diunduh kembali ke
+    save_dir lokal agar strukturnya identik dengan hasil training lokal.
+    """
+    import modal
+
+    print("  Tidak ada GPU lokal terdeteksi — melatih via GPU cloud Modal...")
+    train_fn = modal.Function.from_name('absa-training', 'train_remote')
+    train_result = train_fn.remote(model_config, data)
+
+    mlflow_cfg   = model_config.get('mlflow', {})
+    tracking_uri = os.environ.get(
+        'MLFLOW_TRACKING_URI',
+        mlflow_cfg.get('tracking_uri', 'http://localhost:5000'),
+    )
+    mlflow.set_tracking_uri(tracking_uri)
+
+    save_dir = train_result['save_dir']
+    os.makedirs(save_dir, exist_ok=True)
+    print(f"  Mengunduh checkpoint dari MLflow run {train_result['run_id'][:8]} ke {save_dir}/ ...")
+    downloaded_dir = mlflow.artifacts.download_artifacts(
+        run_id        = train_result['run_id'],
+        artifact_path = 'checkpoint',
+        dst_path      = save_dir,
+    )
+    # download_artifacts menaruh isi artifact_path di save_dir/checkpoint/ —
+    # ratakan ke save_dir langsung agar sama dengan struktur hasil training lokal.
+    if os.path.normpath(downloaded_dir) != os.path.normpath(save_dir):
+        for fname in os.listdir(downloaded_dir):
+            os.replace(os.path.join(downloaded_dir, fname), os.path.join(save_dir, fname))
+        os.rmdir(downloaded_dir)
+
+    print(f"  Pelatihan (Modal) selesai. Best Val Sentiment F1: {train_result['best_val_f1']:.4f}")
+    return train_result
+
+
+def _train_local(model_config: dict, data: dict) -> dict:
+    """
+    Latih model dan catat eksperimen ke MLflow, langsung di proses ini
+    (dipanggil saat GPU lokal tersedia — laptop ber-GPU, atau di dalam
+    kontainer Modal yang memang menyediakan GPU).
+
+    Membuka satu MLflow run yang akan dilanjutkan oleh tahap evaluate_model
+    (via mlflow.start_run(run_id=...)) untuk mencatat metrik test set dalam
+    run yang sama.
     """
     mlflow_cfg   = model_config.get('mlflow', {})
     tracking_uri = os.environ.get(

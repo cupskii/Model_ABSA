@@ -54,7 +54,7 @@ notification:
 
 # ── MLFLOW MODEL REGISTRY ─────────────────────────────────────────────────────
 mlflow:
-  tracking_uri: "http://localhost:5000"
+  tracking_uri: "http://localhost:5001"
   registry_name: "absa_indobert"
   register_stage: "Staging"      # Stage saat model baru didaftarkan
   production_stage: "Production" # Stage model yang sedang berjalan di produksi
