@@ -10,7 +10,7 @@ experiment:
 
 # ── POINTER DATASET ───────────────────────────────────────────────────────────
 data:
-  path: "data/raw/dataset_raw_gt3_CQ_augmented.csv"
+  path: "data/raw/dataset_fix_SP.csv"
   text_column: "Komentar"
   split:
     train_ratio: 0.70
