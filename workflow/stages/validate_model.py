@@ -51,6 +51,7 @@ dapat diteruskan ke tahap registrasi:
 
 import os
 import sys
+import glob
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..'))
 
 import torch
@@ -315,9 +316,21 @@ def _check_vs_staging_reeval(
     print(f"    Mengunduh & mengevaluasi ulang '{registry_name}' v{baseline_version} "
           f"(stage {register_stage}) pada test set saat ini...")
 
-    model_uri      = f"models:/{registry_name}/{register_stage}"
-    local_dir      = mlflow.artifacts.download_artifacts(artifact_uri=model_uri)
-    checkpoint_dir = os.path.join(local_dir, 'artifacts', 'checkpoint')
+    model_uri = f"models:/{registry_name}/{register_stage}"
+    local_dir = mlflow.artifacts.download_artifacts(artifact_uri=model_uri)
+
+    # register_model.py meng-log save_dir via artifacts={'checkpoint': save_dir}
+    # di mlflow.pyfunc.log_model() — tapi MLflow menyimpan foldernya memakai
+    # basename asli save_dir (mis. "model_output" sesuai save_dir di config
+    # eksperimen), BUKAN key dict 'checkpoint'. Nama basename itu bisa beda
+    # antar versi kalau save_dir di config eksperimen pernah di-rename, jadi
+    # dicari langsung folder yang berisi best_model.pt, bukan diasumsikan tetap.
+    matches = glob.glob(os.path.join(local_dir, 'artifacts', '*', 'best_model.pt'))
+    if not matches:
+        raise FileNotFoundError(
+            f"best_model.pt tidak ditemukan di artifact '{model_uri}' (local_dir={local_dir})"
+        )
+    checkpoint_dir = os.path.dirname(matches[0])
 
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     baseline_model, baseline_tokenizer, baseline_cfg = load_model_from_checkpoint(checkpoint_dir, device)

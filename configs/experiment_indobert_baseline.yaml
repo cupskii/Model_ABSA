@@ -1,13 +1,12 @@
 experiment:
   name: "indobert_absa"
-  run_name: "dataset_gt3_CQ_augmented"
+  run_name: "dataset_fix_annotated"
   seed: 42
   description: >
     IndoBERT fine-tuning ABSA Kompas.id — baseline.
     Hyperparameter berasal dari hasil tuning Optuna.
-    Perbaikan anotasi data terhadap aspek CQ dan 
-    Augmentasi Datanya  sebesar 58 kalimat dan hanya mencakup kalimat dengan jumlah kata lebih dari 3
-
+    Perbaikan anotasi data terhadap semua aspek
+   
 # ── POINTER DATASET ───────────────────────────────────────────────────────────
 data:
   path: "data/raw/dataset_fix_SP.csv"
