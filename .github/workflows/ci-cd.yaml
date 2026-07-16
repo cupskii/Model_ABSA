@@ -70,11 +70,19 @@ jobs:
           MODAL_TOKEN_ID: ${{ secrets.MODAL_TOKEN_ID }}
           MODAL_TOKEN_SECRET: ${{ secrets.MODAL_TOKEN_SECRET }}
           MLFLOW_TRACKING_URI: ${{ secrets.MLFLOW_TRACKING_URI }}
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          MLFLOW_S3_ENDPOINT_URL: ${{ secrets.MLFLOW_S3_ENDPOINT_URL }}
+          AWS_DEFAULT_REGION: auto
         run: |
           docker run --rm \
             -e MLFLOW_TRACKING_URI \
             -e MODAL_TOKEN_ID \
             -e MODAL_TOKEN_SECRET \
+            -e AWS_ACCESS_KEY_ID \
+            -e AWS_SECRET_ACCESS_KEY \
+            -e MLFLOW_S3_ENDPOINT_URL \
+            -e AWS_DEFAULT_REGION \
             "$IMAGE:${{ github.sha }}" \
             run --config_path configs/integration_test.yaml \
                 --trigger_reason ci_integration_test
@@ -119,11 +127,19 @@ jobs:
           MODAL_TOKEN_ID: ${{ secrets.MODAL_TOKEN_ID }}
           MODAL_TOKEN_SECRET: ${{ secrets.MODAL_TOKEN_SECRET }}
           MLFLOW_TRACKING_URI: ${{ secrets.MLFLOW_TRACKING_URI }}
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          MLFLOW_S3_ENDPOINT_URL: ${{ secrets.MLFLOW_S3_ENDPOINT_URL }}
+          AWS_DEFAULT_REGION: auto
         run: |
           docker run --rm \
             -e MLFLOW_TRACKING_URI \
             -e MODAL_TOKEN_ID \
             -e MODAL_TOKEN_SECRET \
+            -e AWS_ACCESS_KEY_ID \
+            -e AWS_SECRET_ACCESS_KEY \
+            -e MLFLOW_S3_ENDPOINT_URL \
+            -e AWS_DEFAULT_REGION \
             "$IMAGE:latest" \
             run --config_path configs/integration_test.yaml \
                 --trigger_reason production_smoke_test
