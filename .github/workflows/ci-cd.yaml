@@ -61,15 +61,18 @@ jobs:
         run: docker build -t "$IMAGE:${{ github.sha }}" .
 
       # End-to-end pada sampel kecil (150 baris) & 1 epoch — hanya memastikan
-      # pipeline berjalan utuh. MLflow memakai sqlite di dalam container
-      # sehingga tidak butuh tracking server.
+      # pipeline berjalan utuh. Training didelegasikan ke GPU Modal
+      # (_train_remote), yang mencatat run-nya ke server MLflow asli — jadi
+      # container ini WAJIB memakai tracking URI yang sama (bukan sqlite
+      # lokal) supaya bisa mengunduh checkpoint balik dari run tersebut.
       - name: Integration test (end-to-end, sampel & epoch kecil)
         env:
           MODAL_TOKEN_ID: ${{ secrets.MODAL_TOKEN_ID }}
           MODAL_TOKEN_SECRET: ${{ secrets.MODAL_TOKEN_SECRET }}
+          MLFLOW_TRACKING_URI: ${{ secrets.MLFLOW_TRACKING_URI }}
         run: |
           docker run --rm \
-            -e MLFLOW_TRACKING_URI=sqlite:////tmp/mlflow_ci.db \
+            -e MLFLOW_TRACKING_URI \
             -e MODAL_TOKEN_ID \
             -e MODAL_TOKEN_SECRET \
             "$IMAGE:${{ github.sha }}" \
@@ -115,9 +118,10 @@ jobs:
         env:
           MODAL_TOKEN_ID: ${{ secrets.MODAL_TOKEN_ID }}
           MODAL_TOKEN_SECRET: ${{ secrets.MODAL_TOKEN_SECRET }}
+          MLFLOW_TRACKING_URI: ${{ secrets.MLFLOW_TRACKING_URI }}
         run: |
           docker run --rm \
-            -e MLFLOW_TRACKING_URI=sqlite:////tmp/mlflow_ci.db \
+            -e MLFLOW_TRACKING_URI \
             -e MODAL_TOKEN_ID \
             -e MODAL_TOKEN_SECRET \
             "$IMAGE:latest" \
