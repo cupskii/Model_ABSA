@@ -1,0 +1,11 @@
+-- Dijalankan otomatis oleh image postgres HANYA saat volume postgres_data
+-- masih kosong (initdb pertama kali). Untuk volume yang sudah ada dari
+-- setup MLflow sebelumnya, buat database ini sekali secara manual:
+--
+--   docker compose exec postgres psql -U mlflow -d mlflow \
+--     -c "CREATE DATABASE metaflow OWNER mlflow;"
+--
+-- Database terpisah dari "mlflow" supaya skema metadata service Metaflow
+-- (dikelola migrasi goose miliknya sendiri) tidak tercampur dengan skema
+-- backend store MLflow.
+CREATE DATABASE metaflow OWNER mlflow;

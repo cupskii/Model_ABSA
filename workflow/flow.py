@@ -1,42 +1,4 @@
 """
-ABSA Retraining Pipeline — Definisi Alur Metaflow
-===================================================
-Satu berkas yang menyatukan seluruh tahap beserta urutan dan dependensi
-antar tahap dalam automated ML workflow pipeline.
-
-Penggunaan
-----------
-  # Eksekusi langsung (manual / ad-hoc):
-  python workflow/flow.py run
-
-  # Dengan override parameter:
-  python workflow/flow.py run \\
-      --config_path configs/experiment_indobert_baseline.yaml \\
-      --workflow_config_path workflow/pipeline_config.yaml
-
-  # Cek DAG tanpa eksekusi:
-  python workflow/flow.py show
-
-  # Lihat riwayat eksekusi:
-  python workflow/flow.py list-runs
-
-Penjadwalan
------------
-  @schedule(cron="0 0 1 * *") mendaftarkan flow ini untuk dieksekusi otomatis
-  setiap tanggal 1 pukul 00:00 UTC oleh Metaflow Scheduler.
-  Untuk penggunaan lokal tanpa Metaflow Service, gunakan cron OS atau
-  panggil trigger.py --serve.
-
-Isolasi Lingkungan per Step
-----------------------------
-  Decorator @conda / @pypi pada step train_step mengisolasi dependensi
-  heavy ML (torch, transformers, dll) dari step-step lainnya yang lebih
-  ringan. Metaflow membuat virtual environment terpisah per step secara
-  otomatis tanpa Dockerfile manual.
-
-  Aktifkan dengan flag --environment=conda atau --environment=pypi saat run:
-    python workflow/flow.py --environment=conda run
-
 Mekanisme Trigger
 -----------------
   1. Terjadwal (scheduled)  → Metaflow Scheduler berdasarkan @schedule
@@ -72,18 +34,6 @@ except ImportError:
 
 @_schedule_decorator
 class ABSARetrainingFlow(FlowSpec):
-    """
-    Automated ML Workflow Pipeline untuk retraining model ABSA IndoBERT.
-
-    Tahap (urutan eksekusi):
-      start → extract_data → validate_data → prepare_data →
-      train_step → evaluate_step → validate_model → register_model → end
-    """
-
-    # ── Parameter Pipeline ────────────────────────────────────────────────────
-    # Semua parameter dapat di-override saat runtime sehingga satu definisi
-    # pipeline mendukung variasi konfigurasi tanpa modifikasi kode.
-
     config_path = Parameter(
         'config_path',
         help='Path ke file konfigurasi model YAML (relatif terhadap root repo)',
@@ -143,7 +93,7 @@ class ABSARetrainingFlow(FlowSpec):
 
         self.next(self.validate_data)
 
-    # ── Step 3: Validate Data ─────────────────────────────────────────────────
+  
     @step
     def validate_data(self):
         """Validasi integritas dataset sebelum proses pelatihan."""
@@ -154,7 +104,7 @@ class ABSARetrainingFlow(FlowSpec):
 
         self.next(self.prepare_data)
 
-    # ── Step 4: Prepare Data ──────────────────────────────────────────────────
+
     @step
     def prepare_data(self):
         """

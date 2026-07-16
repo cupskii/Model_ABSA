@@ -4,6 +4,7 @@ import argparse
 import subprocess
 
 import yaml
+import torch
 import mlflow
 import mlflow.pytorch
 
@@ -13,8 +14,6 @@ from pipeline.prepare_data   import prepare_data
 from pipeline.train_model    import train_model
 from pipeline.evaluate_model import evaluate_model
 
-
-# ── UTILITAS ──────────────────────────────────────────────────────────────────
 
 def load_config(path: str) -> dict:
     with open(path, 'r', encoding='utf-8') as f:
@@ -33,10 +32,6 @@ def get_git_commit() -> str:
 
 
 def flatten_config(cfg: dict, prefix: str = '') -> dict:
-    """
-    Ratakan dict konfigurasi bersarang menjadi dict satu level
-    agar dapat di-log ke MLflow sebagai params (nilai harus skalar).
-    """
     out = {}
     for k, v in cfg.items():
         key = f"{prefix}.{k}" if prefix else k
@@ -132,7 +127,7 @@ def run_experiment(config_path: str) -> dict:
     set_seed(seed)
 
     os.environ["MLFLOW_ENABLE_SYSTEM_METRICS_LOGGING"] = "true"
-    tracking_uri = os.environ.get("MLFLOW_TRACKING_URI", config["mlflow"]["tracking_uri"])
+    tracking_uri = os.environ.get("MLFLOW_TRACKING_URI") or config["mlflow"]["tracking_uri"]
     mlflow.set_tracking_uri(tracking_uri)
 
     mlflow.set_experiment(config['experiment']['name'])
@@ -179,11 +174,17 @@ def run_experiment(config_path: str) -> dict:
         print("\n[2/4] Persiapan data...")
         data = prepare_data(config)
         n_train = len(data['df_train'])
-        n_val   = len(data['df_val'])
         n_test  = len(data['df_test'])
-        print(f"  Train: {n_train} | Val: {n_val} | Test: {n_test}")
-        mlflow.log_param('data.n_train', n_train)
-        mlflow.log_param('data.n_val',   n_val)
+        if 'cv_folds' in data:
+            n_folds = len(data['cv_folds'])
+            print(f"  Development: {n_train} | CV folds: {n_folds} | Test: {n_test}")
+            mlflow.log_param('data.n_development', n_train)
+            mlflow.log_param('data.cv.n_splits', n_folds)
+        else:
+            n_val = len(data['df_val'])
+            print(f"  Train: {n_train} | Val: {n_val} | Test: {n_test}")
+            mlflow.log_param('data.n_train', n_train)
+            mlflow.log_param('data.n_val', n_val)
         mlflow.log_param('data.n_test',  n_test)
 
         # Simpan class weights sebagai artefak
@@ -195,16 +196,40 @@ def run_experiment(config_path: str) -> dict:
 
         # ── 3. Pelatihan model ─────────────────────────────────────
         print("\n[3/4] Pelatihan model...")
-        trained = train_model(config, data)
+        if torch.cuda.is_available():
+            trained = train_model(config, data)
+        else:
+            from workflow.stages.train_model import run_train_model
+            from model.checkpoint_io import load_model_from_checkpoint
+
+            train_result = run_train_model(
+                config, data, git_commit=git_commit, run_id=run_id,
+            )
+            device = torch.device('cpu')
+            model, tokenizer, _ = load_model_from_checkpoint(train_result['save_dir'], device)
+            trained = {
+                'model'          : model,
+                'tokenizer'      : tokenizer,
+                'device'         : device,
+                'save_dir'       : train_result['save_dir'],
+                'best_val_f1'    : train_result['best_val_f1'],
+                'best_val_det_f1': train_result['best_val_det_f1'],
+            }
+            for key in ('cv_val_f1_std', 'cv_val_det_f1_std', 'final_epochs'):
+                if key in train_result:
+                    trained[key] = train_result[key]
+
         mlflow.log_metric('best_val_sentiment_f1', trained['best_val_f1'])
         mlflow.log_metric('best_val_detection_f1', trained['best_val_det_f1'])
+        if 'cv_val_f1_std' in trained:
+            mlflow.log_metric('cv_val_sentiment_f1_std', trained['cv_val_f1_std'])
+            mlflow.log_metric('cv_val_detection_f1_std', trained['cv_val_det_f1_std'])
+            mlflow.log_param('model.final_epochs', trained['final_epochs'])
 
-        # ── 4. Evaluasi model ──────────────────────────────────────
         print("\n[4/4] Evaluasi model pada test set...")
         metrics = evaluate_model(config, trained, data)
         mlflow.log_metrics(metrics)
 
-        # ── Simpan artefak kecil ke MLflow ────────────────────────────
         _LARGE_EXTS = {'.bin', '.safetensors', '.pt', '.pth'}
         if os.path.isdir(save_dir):
             for fname in os.listdir(save_dir):
@@ -214,7 +239,6 @@ def run_experiment(config_path: str) -> dict:
 
         mlflow.log_artifact(config_path, artifact_path='config')
 
-        # ── Simpan checkpoint model (.pt) ─────────────────────────────
         ckpt_path = os.path.join(save_dir, 'best_model.pt')
         _save_model_checkpoint(ckpt_path, config, run_id)
 
@@ -223,13 +247,14 @@ def run_experiment(config_path: str) -> dict:
         print(f"{'='*60}")
         print(f"  Test Mean Sentiment F1 : {metrics.get('test_mean_sentiment_f1', 0):.4f}  <- metrik utama")
         print(f"  Test Mean Detection F1 : {metrics.get('test_mean_detect_f1', 0):.4f}")
+        print(f"  Test Pair-based Micro F1     : {metrics.get('test_pair_micro_f1', 0):.4f}")
+        print(f"  Test Aspect Detection F1     : {metrics.get('test_aspect_detection_f1', 0):.4f}")
         print(f"  MLflow Run ID          : {run_id}")
         print(f"{'='*60}\n")
 
     return metrics
 
 
-# ── ENTRY POINT ───────────────────────────────────────────────────────────────
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(

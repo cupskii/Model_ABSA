@@ -1,12 +1,7 @@
-# Konfigurasi Automated ML Workflow Pipeline
-# (Terpisah dari configs/experiment_*.yaml yang merupakan konfigurasi model/eksperimen)
-
-# ── PENJADWALAN ───────────────────────────────────────────────────────────────
 schedule:
   interval: "monthly"
   cron: "0 0 1 * *"          # Setiap tanggal 1 pukul 00:00 UTC
 
-# ── EKSTRAKSI DATA ────────────────────────────────────────────────────────────
 data_extraction:
   # Komponen monitoring (lihat Subbab III.1.4.1) belum dibangun. Selama
   # False, step extract_data dilewati tanpa memanggil monitoring API —
@@ -20,13 +15,12 @@ data_extraction:
   monitoring_api_url: "http://localhost:8001"
   monitoring_api_timeout_seconds: 30
 
-# ── KRITERIA KECUKUPAN DATA ───────────────────────────────────────────────────
 data_sufficiency:
   # Data baru dianggap cukup jika memenuhi SALAH SATU kriteria berikut:
   min_new_samples: 100           # Minimal 100 sampel baru, ATAU
   min_ratio_of_existing: 0.05   # Minimal 5% dari ukuran dataset sebelumnya
 
-# ── VALIDASI MODEL ────────────────────────────────────────────────────────────
+
 model_validation:
   # Ambang minimum metrik pada test set (uji 1: threshold absolute)
   min_sentiment_f1: 0.5
@@ -46,15 +40,14 @@ model_validation:
   # automated pipeline diizinkan berjalan penuh.
   skip_comparison_if_no_production: true
 
-# ── NOTIFIKASI ────────────────────────────────────────────────────────────────
 notification:
   # URL webhook kompatibel Slack/Teams/dsb (kosongkan jika belum dikonfigurasi)
   annotator_webhook_url: ""
   enable_notifications: false
 
-# ── MLFLOW MODEL REGISTRY ─────────────────────────────────────────────────────
+
 mlflow:
   tracking_uri: "http://localhost:5000"
   registry_name: "absa_indobert"
-  register_stage: "Staging"      # Stage saat model baru didaftarkan
-  production_stage: "Production" # Stage model yang sedang berjalan di produksi
+  register_stage: "Staging"      
+  production_stage: "Production" 

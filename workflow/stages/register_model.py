@@ -96,9 +96,8 @@ def run_register_model(
     mlflow_wf  = workflow_config.get('mlflow', {})
     mlflow_mdl = model_config.get('mlflow', {})
 
-    tracking_uri = os.environ.get(
-        'MLFLOW_TRACKING_URI',
-        mlflow_wf.get('tracking_uri') or mlflow_mdl.get('tracking_uri', 'http://localhost:5000'),
+    tracking_uri = os.environ.get('MLFLOW_TRACKING_URI') or (
+        mlflow_wf.get('tracking_uri') or mlflow_mdl.get('tracking_uri', 'http://localhost:5000')
     )
     registry_name  = mlflow_wf.get('registry_name', mlflow_mdl.get('registry_name', 'absa_indobert'))
     register_stage = mlflow_wf.get('register_stage', 'Staging')
@@ -122,7 +121,22 @@ def run_register_model(
             python_model     = ABSAPyfuncModel(),
             artifacts        = {'checkpoint': save_dir},
             code_paths       = _PYFUNC_CODE_PATHS,
-            pip_requirements = ['torch>=2.0.0', 'transformers==5.12.0'],
+            # Sengaja HANYA package yang benar-benar disentuh load_context()/
+            # predict() (absa_pyfunc.py) — bukan requirements.txt training
+            # penuh. numpy/pandas eksplisit di sini karena predict() memanggil
+            # .numpy() dan mengecek isinstance(..., pd.DataFrame) langsung,
+            # bukan cuma transitive dependency torch/mlflow. scikit-learn dan
+            # iterative-stratification SENGAJA tidak disertakan — keduanya
+            # training-only (dulu ikut ter-import transitif lewat
+            # model/absa_model.py dan preprocessing/preprocessing_functions.py,
+            # sudah diperbaiki jadi local import supaya tidak lagi bocor ke
+            # environment serving ini).
+            pip_requirements = [
+                'torch>=2.0.0',
+                'transformers==5.12.0',
+                'numpy',
+                'pandas',
+            ],
         )
 
     model_uri = f"runs:/{run_id}/model"

@@ -78,6 +78,101 @@ def _eval_loop(model, loader, device):
     return detect_f1, sentiment_f1, avg_detect, avg_sentiment, all_preds, all_labels
 
 
+def _prf(tp: int, s: int, g: int) -> tuple:
+    """Precision/Recall/F1 dari TP, jumlah prediksi (S), dan jumlah gold (G)."""
+    precision = tp / s if s > 0 else 0.0
+    recall    = tp / g if g > 0 else 0.0
+    f1 = (2 * precision * recall / (precision + recall)) if (precision + recall) > 0 else 0.0
+    return precision, recall, f1
+
+
+def _pair_and_detection_counts(y_true: np.ndarray, y_pred: np.ndarray, none_idx: int) -> tuple:
+    """
+    TP/S/G untuk Pair-based (aspek+polaritas harus sama-sama benar) dan TP untuk
+    Aspect Detection biner (aspek disebut, lepas dari polaritas) pada satu aspek.
+    S (jumlah prediksi aktif) dan G (jumlah gold aktif) sama untuk kedua metrik —
+    yang membedakan hanya syarat TP-nya.
+    """
+    active_true = y_true != none_idx
+    active_pred = y_pred != none_idx
+    tp_pair   = int(np.sum(active_true & (y_pred == y_true)))
+    tp_detect = int(np.sum(active_true & active_pred))
+    s = int(np.sum(active_pred))
+    g = int(np.sum(active_true))
+    return tp_pair, tp_detect, s, g
+
+
+def compute_pooled_metrics(all_preds: dict, all_labels: dict) -> dict:
+    """
+    Pair-based Micro-F1 dan Aspect Detection F1 (biner), dipool lintas semua
+    aspek jadi satu angka headline masing-masing — setara Tabel 1 (ACSA) vs
+    Tabel 2 (ACD) di Schmitt / Li et al., dan sebanding lintas eksperimen
+    karena tidak dipengaruhi distribusi kelas seperti macro-F1 per aspek.
+
+    - Pair-based Micro-F1  : pasangan (aspek, polaritas) prediksi harus persis
+      sama dengan gold agar terhitung TP.
+    - Aspect Detection F1  : hanya menilai apakah aspek disebut atau tidak,
+      lepas dari benar/salahnya polaritas.
+
+    Returns
+    -------
+    dict berisi 'pooled_pair', 'pooled_detect' (masing-masing tuple P, R, F1)
+    dan 'per_aspect_pair', 'per_aspect_detect' (masing-masing dict aspek → P, R, F1).
+    """
+    per_aspect_pair   = {}
+    per_aspect_detect = {}
+    tot_tp_pair = tot_tp_detect = tot_s = tot_g = 0
+
+    for asp in FINAL_ASPECTS:
+        y_true = np.array(all_labels[asp])
+        y_pred = np.array(all_preds[asp])
+        none_i = NONE_IDX[asp]
+
+        tp_pair, tp_detect, s, g = _pair_and_detection_counts(y_true, y_pred, none_i)
+
+        per_aspect_pair[asp]   = _prf(tp_pair, s, g)
+        per_aspect_detect[asp] = _prf(tp_detect, s, g)
+
+        tot_tp_pair   += tp_pair
+        tot_tp_detect += tp_detect
+        tot_s         += s
+        tot_g         += g
+
+    return {
+        'pooled_pair'      : _prf(tot_tp_pair, tot_s, tot_g),
+        'pooled_detect'    : _prf(tot_tp_detect, tot_s, tot_g),
+        'per_aspect_pair'  : per_aspect_pair,
+        'per_aspect_detect': per_aspect_detect,
+    }
+
+
+def _flat_metrics(det_f1: dict, sent_f1: dict, avg_det: float, avg_sent: float,
+                   pooled: dict) -> dict:
+    """Rakit metrik per-aspek + pooled jadi satu dict flat siap di-log ke MLflow."""
+    pair_p, pair_r, pair_f1       = pooled['pooled_pair']
+    detect_p, detect_r, detect_f1 = pooled['pooled_detect']
+
+    metrics = {
+        'test_mean_detect_f1'   : avg_det,
+        'test_mean_sentiment_f1': avg_sent,
+        # Pair-based Micro-F1 (aspek + polaritas sekaligus, pooled lintas aspek)
+        'test_pair_micro_precision': pair_p,
+        'test_pair_micro_recall'   : pair_r,
+        'test_pair_micro_f1'       : pair_f1,
+        # Aspect Detection F1 (biner, lepas dari polaritas, pooled lintas aspek)
+        'test_aspect_detection_precision': detect_p,
+        'test_aspect_detection_recall'   : detect_r,
+        'test_aspect_detection_f1'       : detect_f1,
+    }
+    for asp in FINAL_ASPECTS:
+        k = _asp_key(asp)
+        metrics[f'test_{k}_detect_f1']    = det_f1[asp]
+        metrics[f'test_{k}_sentiment_f1'] = sent_f1[asp]
+        _, _, metrics[f'test_{k}_pair_f1']            = pooled['per_aspect_pair'][asp]
+        _, _, metrics[f'test_{k}_aspect_detect_f1']   = pooled['per_aspect_detect'][asp]
+    return metrics
+
+
 def compute_test_metrics(model, tokenizer, config: dict, data: dict) -> dict:
     """
     Hitung metrik test set (flat, format sama seperti evaluate_model()) tanpa
@@ -103,17 +198,11 @@ def compute_test_metrics(model, tokenizer, config: dict, data: dict) -> dict:
         shuffle=False, num_workers=0, collate_fn=collator,
     )
 
-    det_f1, sent_f1, avg_det, avg_sent, _, _ = _eval_loop(model, test_loader, device)
-
-    metrics = {
-        'test_mean_detect_f1'   : avg_det,
-        'test_mean_sentiment_f1': avg_sent,
-    }
-    for asp in FINAL_ASPECTS:
-        k = _asp_key(asp)
-        metrics[f'test_{k}_detect_f1']    = det_f1[asp]
-        metrics[f'test_{k}_sentiment_f1'] = sent_f1[asp]
-    return metrics
+    det_f1, sent_f1, avg_det, avg_sent, all_preds, all_labels = _eval_loop(
+        model, test_loader, device
+    )
+    pooled = compute_pooled_metrics(all_preds, all_labels)
+    return _flat_metrics(det_f1, sent_f1, avg_det, avg_sent, pooled)
 
 
 def evaluate_model(config: dict, trained: dict, data: dict) -> dict:
@@ -122,10 +211,18 @@ def evaluate_model(config: dict, trained: dict, data: dict) -> dict:
     yang siap di-log ke MLflow.
 
     Metrik yang dikembalikan:
-      test_mean_detect_f1        — rata-rata Detection F1 semua aspek
-      test_mean_sentiment_f1     — rata-rata Sentiment F1 semua aspek (metrik utama)
-      test_{asp}_detect_f1       — Detection F1 per aspek
-      test_{asp}_sentiment_f1    — Sentiment F1 per aspek
+      test_mean_detect_f1              — macro F1 semua kelas (tertimbang antar aspek);
+                                          dipakai untuk model selection/early stopping
+      test_mean_sentiment_f1           — macro F1 kelas sentimen saja (tertimbang antar aspek)
+      test_{asp}_detect_f1             — detect_f1 di atas, per aspek
+      test_{asp}_sentiment_f1          — sentiment_f1 di atas, per aspek
+      test_pair_micro_{precision,recall,f1}       — Pair-based Micro-F1 pooled lintas
+                                                     aspek: (aspek, polaritas) harus
+                                                     persis sama dengan gold
+      test_aspect_detection_{precision,recall,f1} — Aspect Detection F1 (biner) pooled
+                                                     lintas aspek, lepas dari polaritas
+      test_{asp}_pair_f1               — Pair-based F1 per aspek
+      test_{asp}_aspect_detect_f1      — Aspect Detection F1 (biner) per aspek
     """
     model_type = config['model']['type']
     if model_type == 'indobert_multitask':
@@ -153,18 +250,28 @@ def _evaluate_indobert(config: dict, trained: dict, data: dict) -> dict:
     det_f1, sent_f1, avg_det, avg_sent, all_preds, all_labels = _eval_loop(
         model, test_loader, device
     )
+    pooled = compute_pooled_metrics(all_preds, all_labels)
+    pair_p, pair_r, pair_f1       = pooled['pooled_pair']
+    detect_p, detect_r, detect_f1 = pooled['pooled_detect']
 
     # ── Cetak laporan ──────────────────────────────────────────────────
     print(f"\n{'='*60}")
     print("HASIL EVALUASI TEST SET")
     print(f"{'='*60}")
-    print(f"{'Aspek':<30} {'Detection':>10} {'Sentimen':>10}")
-    print(f"{'─'*52}")
+    print(f"{'Aspek':<30} {'Detection':>10} {'Sentimen':>10} {'PairF1':>10} {'DetectF1':>10}")
+    print(f"{'─'*72}")
     for asp in FINAL_ASPECTS:
-        print(f"{asp:<30} {det_f1[asp]:>10.4f} {sent_f1[asp]:>10.4f}")
-    print(f"{'─'*52}")
+        _, _, asp_pair_f1   = pooled['per_aspect_pair'][asp]
+        _, _, asp_detect_f1 = pooled['per_aspect_detect'][asp]
+        print(f"{asp:<30} {det_f1[asp]:>10.4f} {sent_f1[asp]:>10.4f} "
+              f"{asp_pair_f1:>10.4f} {asp_detect_f1:>10.4f}")
+    print(f"{'─'*72}")
     print(f"{'Rata-rata (tertimbang)':<30} {avg_det:>10.4f} {avg_sent:>10.4f}")
-    print(f"\n  Sentiment F1 adalah metrik utama keberhasilan model.")
+    print(f"\n  Sentiment F1 (macro, tertimbang) adalah metrik utama early stopping/model selection.")
+    print(f"\n  Pooled Pair-based Micro-F1 (aspek+polaritas)  : "
+          f"P={pair_p:.4f} R={pair_r:.4f} F1={pair_f1:.4f}")
+    print(f"  Pooled Aspect Detection F1 (biner, lepas polaritas): "
+          f"P={detect_p:.4f} R={detect_r:.4f} F1={detect_f1:.4f}")
 
     print(f"\n── Classification Report per Aspek ──")
     for asp in FINAL_ASPECTS:
@@ -186,11 +293,20 @@ def _evaluate_indobert(config: dict, trained: dict, data: dict) -> dict:
             y_true  = np.array(all_labels[asp])
             y_pred  = np.array(all_preds[asp])
             n_aktif = (y_true != NONE_IDX[asp]).sum()
+            asp_pair_p, asp_pair_r, asp_pair_f1       = pooled['per_aspect_pair'][asp]
+            asp_det_p, asp_det_r, asp_det_f1          = pooled['per_aspect_detect'][asp]
             fout.write(f"{asp}  (n_total={len(y_true)}, n_aktif={n_aktif})\n")
             fout.write(classification_report(
                 y_true, y_pred, target_names=LABEL_NAMES[asp], zero_division=0,
             ))
+            fout.write(f"Pair-based       : P={asp_pair_p:.4f} R={asp_pair_r:.4f} F1={asp_pair_f1:.4f}\n")
+            fout.write(f"Aspect Detection : P={asp_det_p:.4f} R={asp_det_r:.4f} F1={asp_det_f1:.4f}\n")
             fout.write("\n")
+
+        fout.write("=" * 60 + "\n")
+        fout.write("Pooled (lintas semua aspek)\n")
+        fout.write(f"Pair-based Micro-F1   : P={pair_p:.4f} R={pair_r:.4f} F1={pair_f1:.4f}\n")
+        fout.write(f"Aspect Detection F1   : P={detect_p:.4f} R={detect_r:.4f} F1={detect_f1:.4f}\n")
 
     # ── Confusion matrix per aspek ─────────────────────────────────────
     n_cols = 3
@@ -231,13 +347,4 @@ def _evaluate_indobert(config: dict, trained: dict, data: dict) -> dict:
     plt.close(fig)
 
     # ── Metrik flat untuk MLflow ────────────────────────────────────────
-    metrics = {
-        'test_mean_detect_f1'   : avg_det,
-        'test_mean_sentiment_f1': avg_sent,
-    }
-    for asp in FINAL_ASPECTS:
-        k = _asp_key(asp)
-        metrics[f'test_{k}_detect_f1']    = det_f1[asp]
-        metrics[f'test_{k}_sentiment_f1'] = sent_f1[asp]
-
-    return metrics
+    return _flat_metrics(det_f1, sent_f1, avg_det, avg_sent, pooled)

@@ -4,19 +4,24 @@ experiment:
   seed: 42
   description: >
     IndoBERT fine-tuning ABSA Kompas.id — baseline.
-    Hyperparameter berasal dari hasil tuning Optuna.
+    Hyperparameter default umum (belum di-tuning Optuna untuk dataset ini),
+    tanpa class weighting, tanpa CV (single train/val/test split).
     Perbaikan anotasi data terhadap semua aspek
    
-# ── POINTER DATASET ───────────────────────────────────────────────────────────
 data:
-  path: "data/raw/dataset_fix_SP.csv"
+  path: "data/raw/dataset_final.csv"
   text_column: "Komentar"
   split:
+    # 70% train / 15% val / 15% test (dipakai saat cv.enabled: false).
     train_ratio: 0.70
     val_ratio: 0.15
     random_state: 42
+  cv:
+    enabled: false
+    n_splits: 5
+    shuffle: true
+    random_state: 42
 
-# ── KONFIGURASI PRAPEMROSESAN ─────────────────────────────────────────────────
 preprocessing:
   remove_emoji: true
   lowercase: true
@@ -24,7 +29,7 @@ preprocessing:
   compress_repeated_chars: true
   remove_special_chars: true
   normalize_slang: true
-  remove_stopwords: false  # false untuk IndoBERT (model sudah kontekstual)
+  remove_stopwords: false
 
 # ── KONFIGURASI REPRESENTASI TEKS ────────────────────────────────────────────
 # model_revision harus dikunci ke commit hash spesifik setelah eksperimen
@@ -36,20 +41,19 @@ representation:
   model_revision: "main"
   max_length: 128
 
-# ── KONFIGURASI MODEL ─────────────────────────────────────────────────────────
 model:
   type: "indobert_multitask"
-  use_class_weights: true
+  use_class_weights: false
   save_dir: "model_output"
   params:
-    dropout_rate: 0.17366466880936898
-    batch_size: 8
-    learning_rate: 4.801650729207848e-05
-    num_epochs: 25
-    warmup_ratio: 0.05366045312634687
-    weight_decay: 0.039008177788135416
+    dropout_rate: 0.1
+    batch_size: 16
+    learning_rate: 2.0e-5
+    num_epochs: 20
+    warmup_ratio: 0.1
+    weight_decay: 0.01
     max_grad_norm: 1.0
-    patience: 5
+    patience: 4
 
 mlflow:
   tracking_uri: http://localhost:5000

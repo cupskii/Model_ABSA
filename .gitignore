@@ -34,6 +34,13 @@ model_output*/
 mlruns/
 mlartifacts/
 
+# ── Metaflow ──────────────────────────────────────────────────────────────────
+# Metadata datastore lokal (mode default, tanpa Metaflow Service).
+.metaflow/
+# Clone manual Netflix/metaflow-service & Netflix/metaflow-ui untuk build image
+# UI backend/frontend (tidak ada image publik untuk keduanya) — lihat Next_Step.md.
+.metaflow-ui-stack/
+
 # ── DVC (cache & temp, config resmi ada di .dvc/.gitignore) ──────────────────
 .dvc/tmp/
 .dvc/cache/
