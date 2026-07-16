@@ -78,3 +78,8 @@ Desktop.ini
 # Automated workflow / CI artifacts
 .metaflow/
 mlflow_ci.db
+
+# ── GitHub Actions self-hosted runner ────────────────────────────────────────
+# Instalasi runner (config.sh/run.sh) — berisi .credentials & .credentials_rsaparams
+# (kredensial registrasi runner ke GitHub) plus binary besar. JANGAN pernah commit.
+actions-runner/

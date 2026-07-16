@@ -114,6 +114,21 @@ jobs:
             run --config_path configs/integration_test.yaml \
                 --trigger_reason production_smoke_test
 
+      # Trigger server (workflow/trigger.py --serve) menerima pemicu eksternal
+      # dari komponen monitoring via HTTP POST /trigger. Container ini persisten
+      # (bukan --rm) — di-replace dengan image terbaru tiap kali deploy sukses,
+      # --restart unless-stopped supaya tetap hidup lintas restart Docker/mesin.
+      - name: Restart trigger server (HTTP endpoint eksternal)
+        run: |
+          docker rm -f absa-trigger-server 2>/dev/null || true
+          docker run -d --restart unless-stopped \
+            --name absa-trigger-server \
+            --entrypoint python \
+            -p 8002:8002 \
+            --env-file /opt/absa/.env \
+            "$IMAGE:latest" \
+            workflow/trigger.py --serve --host 0.0.0.0 --port 8002
+
       # Perbarui container pipeline terjadwal (retraining bulanan — cron
       # mengikuti schedule di workflow/pipeline_config.yaml)
       - name: Perbarui cron retraining terjadwal
