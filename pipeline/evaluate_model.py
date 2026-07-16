@@ -279,8 +279,11 @@ def _evaluate_indobert(config: dict, trained: dict, data: dict) -> dict:
         y_pred  = np.array(all_preds[asp])
         n_aktif = (y_true != NONE_IDX[asp]).sum()
         print(f"\n{asp}  (n_total={len(y_true)}, n_aktif={n_aktif})")
+        # labels= eksplisit agar tetap konsisten dengan target_names meskipun
+        # tidak semua kelas muncul di test set (mis. test set kecil)
         print(classification_report(
-            y_true, y_pred, target_names=LABEL_NAMES[asp], zero_division=0,
+            y_true, y_pred, labels=list(range(len(LABEL_NAMES[asp]))),
+            target_names=LABEL_NAMES[asp], zero_division=0,
         ))
 
     # ── Simpan classification report ke file ──────────────────────────
@@ -297,7 +300,8 @@ def _evaluate_indobert(config: dict, trained: dict, data: dict) -> dict:
             asp_det_p, asp_det_r, asp_det_f1          = pooled['per_aspect_detect'][asp]
             fout.write(f"{asp}  (n_total={len(y_true)}, n_aktif={n_aktif})\n")
             fout.write(classification_report(
-                y_true, y_pred, target_names=LABEL_NAMES[asp], zero_division=0,
+                y_true, y_pred, labels=list(range(len(LABEL_NAMES[asp]))),
+                target_names=LABEL_NAMES[asp], zero_division=0,
             ))
             fout.write(f"Pair-based       : P={asp_pair_p:.4f} R={asp_pair_r:.4f} F1={asp_pair_f1:.4f}\n")
             fout.write(f"Aspect Detection : P={asp_det_p:.4f} R={asp_det_r:.4f} F1={asp_det_f1:.4f}\n")

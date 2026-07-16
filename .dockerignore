@@ -1,0 +1,16 @@
+# Tidak ikut ke dalam container image pipeline
+.git
+.venv
+__pycache__
+**/__pycache__
+*.pyc
+.env
+mlflow.db
+mlflow_ci.db
+model_output
+model_output_ci
+.metaflow
+workflow/.state
+Untitled0.ipynb
+.dvc/cache
+.dvc/tmp

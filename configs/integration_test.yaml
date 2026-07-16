@@ -1,0 +1,56 @@
+# Konfigurasi Integration Test (CI)
+# ==================================
+# Dipakai tahap integration test pada CI/CD: menjalankan pipeline end-to-end
+# pada sampel data kecil (150 baris) dan epoch kecil (1 epoch) HANYA untuk
+# memastikan seluruh tahap pipeline dapat berjalan — bukan untuk menghasilkan
+# model yang layak. Lihat .github/workflows/ci-cd.yaml.
+
+experiment:
+  name: "integration_test"
+  run_name: "ci_smoke_test"
+  seed: 42
+  description: >
+    Smoke test end-to-end automated ML workflow pipeline pada sampel kecil.
+
+data:
+  path: "tests/fixtures/sample_dataset.csv"
+  text_column: "Komentar"
+  split:
+    train_ratio: 0.70
+    val_ratio: 0.15
+    random_state: 42
+
+preprocessing:
+  remove_emoji: true
+  lowercase: true
+  remove_url_mention: true
+  compress_repeated_chars: true
+  remove_special_chars: true
+  normalize_slang: true
+  remove_stopwords: false
+
+representation:
+  type: "indobert"
+  model_name: "indobenchmark/indobert-base-p1"
+  model_revision: "main"
+  max_length: 64          # lebih pendek dari produksi (128) agar cepat di CPU CI
+
+model:
+  type: "indobert_multitask"
+  use_class_weights: true
+  save_dir: "model_output_ci"
+  params:
+    dropout_rate: 0.1
+    batch_size: 8
+    learning_rate: 5.0e-05
+    num_epochs: 1          # epoch kecil — cukup untuk memastikan pipeline jalan
+    warmup_ratio: 0.05
+    weight_decay: 0.01
+    max_grad_norm: 1.0
+    patience: 1
+
+mlflow:
+  # Di CI di-override lewat env MLFLOW_TRACKING_URI=sqlite:///... sehingga
+  # tidak butuh MLflow server; sqlite mendukung tracking + model registry.
+  tracking_uri: "sqlite:///mlflow_ci.db"
+  registry_name: "absa_indobert_ci"
