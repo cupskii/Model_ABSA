@@ -182,7 +182,8 @@ class TestTrainModel:
         }
         with patch.object(stage, 'mlflow', mock_mlflow), \
              patch.object(stage, 'train_model', return_value=trained) as mock_train, \
-             patch.object(stage, 'set_seed'):
+             patch.object(stage, 'set_seed'), \
+             patch.object(stage.torch.cuda, 'is_available', return_value=True):
             result = stage.run_train_model(model_config, {'df_train': None})
 
         mock_train.assert_called_once()
@@ -258,22 +259,35 @@ class TestValidateModel:
 
         no_prod = {'exists': False, 'value': None, 'reason': 'belum ada model produksi'}
         metrics = {'test_mean_sentiment_f1': 0.7}
+        data = {}
+        model_config = {'data': {'path': 'data/raw/dataset.csv'}}
 
-        assert _check_vs_production(metrics, no_prod, self.VALIDATION_CFG)['passed']
+        assert _check_vs_production(metrics, no_prod, self.VALIDATION_CFG, data, model_config)['passed']
 
         strict_cfg = dict(self.VALIDATION_CFG, skip_comparison_if_no_production=False)
-        assert not _check_vs_production(metrics, no_prod, strict_cfg)['passed']
+        assert not _check_vs_production(metrics, no_prod, strict_cfg, data, model_config)['passed']
 
     def test_comparison_vs_production_metric(self):
         """Uji 2: model baru harus lebih baik dari metrik model produksi."""
         from workflow.stages.validate_model import _check_vs_production
 
-        prod = {'exists': True, 'value': 0.6, 'reason': 'produksi v1'}
+        data = {}
+        model_config = {'data': {'path': 'data/raw/dataset.csv'}}
+        # dataset_path sama dengan model_config → same_dataset=True, memakai
+        # metrik produksi yang sudah tercatat tanpa perlu re-evaluasi checkpoint.
+        prod = {
+            'exists': True, 'value': 0.6, 'reason': 'produksi v1',
+            'dataset_path': 'data/raw/dataset.csv',
+        }
 
-        better = _check_vs_production({'test_mean_sentiment_f1': 0.7}, prod, self.VALIDATION_CFG)
+        better = _check_vs_production(
+            {'test_mean_sentiment_f1': 0.7}, prod, self.VALIDATION_CFG, data, model_config,
+        )
         assert better['passed'] and better['details']['delta'] == pytest.approx(0.1)
 
-        worse = _check_vs_production({'test_mean_sentiment_f1': 0.5}, prod, self.VALIDATION_CFG)
+        worse = _check_vs_production(
+            {'test_mean_sentiment_f1': 0.5}, prod, self.VALIDATION_CFG, data, model_config,
+        )
         assert not worse['passed']
 
 
