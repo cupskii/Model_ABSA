@@ -64,9 +64,14 @@ jobs:
       # pipeline berjalan utuh. MLflow memakai sqlite di dalam container
       # sehingga tidak butuh tracking server.
       - name: Integration test (end-to-end, sampel & epoch kecil)
+        env:
+          MODAL_TOKEN_ID: ${{ secrets.MODAL_TOKEN_ID }}
+          MODAL_TOKEN_SECRET: ${{ secrets.MODAL_TOKEN_SECRET }}
         run: |
           docker run --rm \
             -e MLFLOW_TRACKING_URI=sqlite:////tmp/mlflow_ci.db \
+            -e MODAL_TOKEN_ID \
+            -e MODAL_TOKEN_SECRET \
             "$IMAGE:${{ github.sha }}" \
             run --config_path configs/integration_test.yaml \
                 --trigger_reason ci_integration_test
@@ -107,9 +112,14 @@ jobs:
 
       # 6. Integration test ulang di lingkungan produksi
       - name: Integration test ulang (smoke test produksi)
+        env:
+          MODAL_TOKEN_ID: ${{ secrets.MODAL_TOKEN_ID }}
+          MODAL_TOKEN_SECRET: ${{ secrets.MODAL_TOKEN_SECRET }}
         run: |
           docker run --rm \
             -e MLFLOW_TRACKING_URI=sqlite:////tmp/mlflow_ci.db \
+            -e MODAL_TOKEN_ID \
+            -e MODAL_TOKEN_SECRET \
             "$IMAGE:latest" \
             run --config_path configs/integration_test.yaml \
                 --trigger_reason production_smoke_test
