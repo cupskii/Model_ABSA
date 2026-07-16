@@ -5,13 +5,17 @@
 #   CI : 1. Unit test setiap komponen pipeline (ekstraksi data s.d. registrasi model)
 #        2. Build container image berisi seluruh implementasi pipeline + dependensi
 #        3. Integration test image pada sampel data kecil & epoch kecil (end-to-end)
-#        4. Push image yang lolos ke container registry (Docker Hub)
-#   CD : 5. Deploy image ke lingkungan produksi
+#        4. Push image yang lolos ke container registry (GHCR)
+#   CD : 5. Deploy image ke lingkungan produksi (mesin lokal via self-hosted runner)
 #        6. Integration test ulang di lingkungan produksi
 #
-# Secrets yang dibutuhkan (Settings → Secrets and variables → Actions):
-#   DOCKERHUB_USERNAME, DOCKERHUB_TOKEN   — kredensial Docker Hub
-#   DEPLOY_HOST, DEPLOY_USER, DEPLOY_SSH_KEY — akses SSH server produksi
+# Prasyarat:
+#   - Registry: GitHub Container Registry (ghcr.io) — otentikasi otomatis
+#     lewat GITHUB_TOKEN, tidak perlu secret registry tambahan.
+#   - Job `deploy` butuh self-hosted runner yang terpasang di mesin lokal
+#     yang jadi target deploy (Settings → Actions → Runners → New self-hosted
+#     runner, jalankan `run.sh`/`run.cmd` di mesin tersebut). Runner harus
+#     punya label `self-hosted` dan akses ke Docker daemon lokal.
 
 name: CI/CD Pipeline
 
@@ -21,7 +25,7 @@ on:
   pull_request:
 
 env:
-  IMAGE: ${{ secrets.DOCKERHUB_USERNAME }}/absa-pipeline
+  IMAGE: ghcr.io/${{ github.repository_owner }}/absa-pipeline
 
 jobs:
 
@@ -67,12 +71,13 @@ jobs:
             run --config_path configs/integration_test.yaml \
                 --trigger_reason ci_integration_test
 
-      - name: Login ke Docker Hub
+      - name: Login ke GHCR
         if: github.ref == 'refs/heads/main'
         uses: docker/login-action@v3
         with:
-          username: ${{ secrets.DOCKERHUB_USERNAME }}
-          password: ${{ secrets.DOCKERHUB_TOKEN }}
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Push image ke container registry
         if: github.ref == 'refs/heads/main'
@@ -81,38 +86,41 @@ jobs:
           docker push "$IMAGE:${{ github.sha }}"
           docker push "$IMAGE:latest"
 
-  # ── CD Tahap 5–6: Deploy ke Produksi + Integration Test Ulang ───────────────
+  # ── CD Tahap 5–6: Deploy ke Produksi (Lokal) + Integration Test Ulang ───────
   deploy:
-    name: Deploy ke produksi
+    name: Deploy ke produksi (mesin lokal)
     needs: build-integration-push
     if: github.ref == 'refs/heads/main'
-    runs-on: ubuntu-latest
+    runs-on: self-hosted
     environment: production
     steps:
-      - name: Deploy dan verifikasi di server produksi
-        uses: appleboy/ssh-action@v1
+      - name: Login ke GHCR
+        uses: docker/login-action@v3
         with:
-          host: ${{ secrets.DEPLOY_HOST }}
-          username: ${{ secrets.DEPLOY_USER }}
-          key: ${{ secrets.DEPLOY_SSH_KEY }}
-          script: |
-            set -e
-            IMAGE="${{ env.IMAGE }}"
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
 
-            # 5. Deploy: tarik image terbaru menggantikan versi sebelumnya
-            docker pull "$IMAGE:latest"
+      # 5. Deploy: tarik image terbaru menggantikan versi sebelumnya
+      - name: Pull image terbaru
+        run: docker pull "$IMAGE:latest"
 
-            # 6. Integration test ulang di lingkungan produksi
-            docker run --rm \
-              -e MLFLOW_TRACKING_URI=sqlite:////tmp/mlflow_ci.db \
-              "$IMAGE:latest" \
-              run --config_path configs/integration_test.yaml \
-                  --trigger_reason production_smoke_test
+      # 6. Integration test ulang di lingkungan produksi
+      - name: Integration test ulang (smoke test produksi)
+        run: |
+          docker run --rm \
+            -e MLFLOW_TRACKING_URI=sqlite:////tmp/mlflow_ci.db \
+            "$IMAGE:latest" \
+            run --config_path configs/integration_test.yaml \
+                --trigger_reason production_smoke_test
 
-            # Perbarui container pipeline terjadwal (retraining bulanan —
-            # cron mengikuti schedule di workflow/pipeline_config.yaml)
-            ( crontab -l 2>/dev/null | grep -v 'absa-pipeline-scheduled' ;
-              echo "0 0 1 * * docker run --rm --env-file /opt/absa/.env --name absa-pipeline-scheduled $IMAGE:latest run --trigger_reason scheduled"
-            ) | crontab -
+      # Perbarui container pipeline terjadwal (retraining bulanan — cron
+      # mengikuti schedule di workflow/pipeline_config.yaml)
+      - name: Perbarui cron retraining terjadwal
+        run: |
+          ( crontab -l 2>/dev/null | grep -v 'absa-pipeline-scheduled' ;
+            echo "0 0 1 * * docker run --rm --env-file /opt/absa/.env --name absa-pipeline-scheduled $IMAGE:latest run --trigger_reason scheduled"
+          ) | crontab -
 
-            docker image prune -f
+      - name: Bersihkan image lama
+        run: docker image prune -f

@@ -3,7 +3,7 @@
 # Berisi seluruh berkas implementasi pipeline beserta instalasi seluruh
 # dependensinya. Dibangun pada tahap CI setelah unit test lolos, diuji
 # integration test end-to-end, lalu disimpan ke container registry
-# (Docker Hub). Lihat .github/workflows/ci-cd.yaml.
+# (GHCR). Lihat .github/workflows/ci-cd.yaml.
 #
 # Build : docker build -t absa-pipeline .
 # Run   : docker run --rm absa-pipeline run
