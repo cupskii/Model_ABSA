@@ -58,14 +58,6 @@ def train_model(config: dict, data: dict) -> dict:
 
 
 def _train_indobert(config: dict, data: dict) -> dict:
-    """Pilih alur CV atau single split berdasarkan hasil prepare_data()."""
-    if 'cv_folds' in data:
-        from pipeline.train_model_cv import train_indobert_cv
-        return train_indobert_cv(config, data)
-    return _train_indobert_single_split(config, data)
-
-
-def _train_indobert_single_split(config: dict, data: dict) -> dict:
     rep_cfg   = config['representation']
     model_cfg = config['model']
     params    = model_cfg['params']

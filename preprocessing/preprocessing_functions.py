@@ -259,61 +259,6 @@ def stratified_split(df: pd.DataFrame, train_ratio=0.70, val_ratio=0.15, random_
     return df_train, df_val, df_test
 
 
-def stratified_split_train_test(df: pd.DataFrame, train_ratio=0.80, random_state=42):
-    """
-    Bagi dataset menjadi train/test saja (tanpa val) dengan multilabel
-    stratified split -- dipakai saat validasi dilakukan lewat cross-validation
-    pada training set, bukan lewat split val terpisah.
-    """
-    from iterstrat.ml_stratifiers import MultilabelStratifiedShuffleSplit
-
-    df = df.copy()
-    Y = build_multilabel_matrix(df)
-
-    msss = MultilabelStratifiedShuffleSplit(
-        n_splits=1, test_size=(1 - train_ratio), random_state=random_state
-    )
-    train_idx, test_idx = next(msss.split(df, Y))
-    df_train = df.iloc[train_idx].copy()
-    df_test  = df.iloc[test_idx].copy()
-
-    return df_train, df_test
-
-
-def multilabel_stratified_folds(
-    df: pd.DataFrame,
-    n_splits: int = 5,
-    shuffle: bool = True,
-    random_state: int = 42,
-):
-    """Buat indeks fold CV yang mempertahankan distribusi seluruh label aspek.
-
-    Indeks yang dikembalikan bersifat posisional terhadap ``df`` sehingga dapat
-    digunakan dengan ``df.iloc``. Bentuk list biasa dipilih agar aman saat data
-    dikirim ke worker Modal atau disimpan sebagai artifact Metaflow.
-    """
-    from iterstrat.ml_stratifiers import MultilabelStratifiedKFold
-
-    if n_splits < 2:
-        raise ValueError("data.cv.n_splits minimal 2")
-    if n_splits > len(df):
-        raise ValueError("data.cv.n_splits tidak boleh melebihi jumlah development data")
-
-    Y = build_multilabel_matrix(df)
-    splitter = MultilabelStratifiedKFold(
-        n_splits=n_splits,
-        shuffle=shuffle,
-        random_state=random_state if shuffle else None,
-    )
-    return [
-        {
-            'train_idx': train_idx.tolist(),
-            'val_idx': val_idx.tolist(),
-        }
-        for train_idx, val_idx in splitter.split(df, Y)
-    ]
-
-
 def check_split_size(df_train: pd.DataFrame, df_val: pd.DataFrame, df_test: pd.DataFrame):
     """Cetak ringkasan ukuran dan proporsi setiap split."""
     total = len(df_train) + len(df_val) + len(df_test)

@@ -12,14 +12,9 @@ data:
   path: "data/raw/dataset_final.csv"
   text_column: "Komentar"
   split:
-    # 70% train / 15% val / 15% test (dipakai saat cv.enabled: false).
+    # 70% train / 15% val / 15% test
     train_ratio: 0.70
     val_ratio: 0.15
-    random_state: 42
-  cv:
-    enabled: false
-    n_splits: 5
-    shuffle: true
     random_state: 42
 
 preprocessing:

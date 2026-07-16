@@ -162,10 +162,6 @@ def _train_local(model_config: dict, data: dict, git_commit: Optional[str] = Non
 
         mlflow.log_metric('best_val_sentiment_f1', trained['best_val_f1'])
         mlflow.log_metric('best_val_detection_f1', trained['best_val_det_f1'])
-        if 'cv_val_f1_std' in trained:
-            mlflow.log_metric('cv_val_sentiment_f1_std', trained['cv_val_f1_std'])
-            mlflow.log_metric('cv_val_detection_f1_std', trained['cv_val_det_f1_std'])
-            mlflow.log_param('model.final_epochs', trained['final_epochs'])
 
         # Log artefak kecil (bukan checkpoint .pt)
         _LARGE_EXTS = {'.bin', '.safetensors', '.pt', '.pth'}
@@ -185,7 +181,4 @@ def _train_local(model_config: dict, data: dict, git_commit: Optional[str] = Non
         'best_val_f1'    : trained['best_val_f1'],
         'best_val_det_f1': trained['best_val_det_f1'],
     }
-    for key in ('cv_val_f1_std', 'cv_val_det_f1_std', 'final_epochs'):
-        if key in trained:
-            result[key] = trained[key]
     return result

@@ -175,16 +175,10 @@ def run_experiment(config_path: str) -> dict:
         data = prepare_data(config)
         n_train = len(data['df_train'])
         n_test  = len(data['df_test'])
-        if 'cv_folds' in data:
-            n_folds = len(data['cv_folds'])
-            print(f"  Development: {n_train} | CV folds: {n_folds} | Test: {n_test}")
-            mlflow.log_param('data.n_development', n_train)
-            mlflow.log_param('data.cv.n_splits', n_folds)
-        else:
-            n_val = len(data['df_val'])
-            print(f"  Train: {n_train} | Val: {n_val} | Test: {n_test}")
-            mlflow.log_param('data.n_train', n_train)
-            mlflow.log_param('data.n_val', n_val)
+        n_val   = len(data['df_val'])
+        print(f"  Train: {n_train} | Val: {n_val} | Test: {n_test}")
+        mlflow.log_param('data.n_train', n_train)
+        mlflow.log_param('data.n_val', n_val)
         mlflow.log_param('data.n_test',  n_test)
 
         # Simpan class weights sebagai artefak
@@ -215,16 +209,9 @@ def run_experiment(config_path: str) -> dict:
                 'best_val_f1'    : train_result['best_val_f1'],
                 'best_val_det_f1': train_result['best_val_det_f1'],
             }
-            for key in ('cv_val_f1_std', 'cv_val_det_f1_std', 'final_epochs'):
-                if key in train_result:
-                    trained[key] = train_result[key]
 
         mlflow.log_metric('best_val_sentiment_f1', trained['best_val_f1'])
         mlflow.log_metric('best_val_detection_f1', trained['best_val_det_f1'])
-        if 'cv_val_f1_std' in trained:
-            mlflow.log_metric('cv_val_sentiment_f1_std', trained['cv_val_f1_std'])
-            mlflow.log_metric('cv_val_detection_f1_std', trained['cv_val_det_f1_std'])
-            mlflow.log_param('model.final_epochs', trained['final_epochs'])
 
         print("\n[4/4] Evaluasi model pada test set...")
         metrics = evaluate_model(config, trained, data)

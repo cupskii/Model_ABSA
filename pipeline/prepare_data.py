@@ -5,9 +5,82 @@ from preprocessing.preprocessing_functions import (
     remove_emoji, lowercase, remove_url_mention,
     compress_repeated_chars, remove_special_chars,
     normalize_whitespace, normalize_slang, remove_stopwords,
-    convert_labels, stratified_split, stratified_split_train_test,
-    multilabel_stratified_folds, compute_class_weights, FINAL_ASPECTS, LABEL_NAMES,
+    convert_labels, stratified_split, compute_class_weights, FINAL_ASPECTS,
 )
+
+SENTIMENT_LABELS = {
+    -1: 'Negatif',
+    0: 'Netral',
+    1: 'Positif',
+}
+
+
+def compute_sentiment_proportions(df: pd.DataFrame) -> dict:
+    """Hitung jumlah dan proporsi sentimen berlabel pada setiap aspek.
+
+    Nilai NaN tidak dimasukkan ke penyebut proporsi karena menandakan aspek
+    tersebut tidak dibahas. Jumlah NaN tetap disertakan sebagai ``n_missing``.
+    """
+    proportions = {}
+
+    for aspect in FINAL_ASPECTS:
+        if aspect not in df.columns:
+            continue
+
+        labeled = df[aspect].dropna()
+        n_labeled = int(len(labeled))
+        sentiments = {}
+
+        for value, name in SENTIMENT_LABELS.items():
+            count = int((labeled == value).sum())
+            percentage = (count / n_labeled * 100) if n_labeled else 0.0
+            sentiments[name] = {
+                'count': count,
+                'percentage': round(percentage, 2),
+            }
+
+        proportions[aspect] = {
+            'n_labeled': n_labeled,
+            'n_missing': int(df[aspect].isna().sum()),
+            'sentiments': sentiments,
+        }
+
+    return proportions
+
+
+def compute_split_sentiment_proportions(
+    df_train: pd.DataFrame,
+    df_val: pd.DataFrame,
+    df_test: pd.DataFrame,
+) -> dict:
+    return {
+        'train': compute_sentiment_proportions(df_train),
+        'val': compute_sentiment_proportions(df_val),
+        'test': compute_sentiment_proportions(df_test),
+    }
+
+
+def print_sentiment_proportions(
+    proportions: dict,
+    split_name: str | None = None,
+) -> None:
+    """Tampilkan proporsi sentimen per aspek dalam bentuk tabel teks."""
+    split_label = f" - {split_name.upper()}" if split_name else ''
+    print(f"\nProporsi sentimen per aspek{split_label} "
+          "(berdasarkan data berlabel):")
+    print(f"{'Aspek':<25} {'Berlabel':>8} {'Negatif':>17} "
+          f"{'Netral':>17} {'Positif':>17}")
+    print('-' * 88)
+
+    for aspect, stats in proportions.items():
+        cells = []
+        for name in SENTIMENT_LABELS.values():
+            sentiment = stats['sentiments'][name]
+            cells.append(
+                f"{sentiment['count']} ({sentiment['percentage']:.2f}%)"
+            )
+        print(f"{aspect:<25} {stats['n_labeled']:>8} "
+              f"{cells[0]:>17} {cells[1]:>17} {cells[2]:>17}")
 
 
 def apply_preprocessing(text: str, flags: dict) -> str:
@@ -36,36 +109,24 @@ def apply_preprocessing(text: str, flags: dict) -> str:
     return normalize_whitespace(text)
 
 
-def print_class_distribution(**splits: pd.DataFrame) -> None:
+def prepare_data(config: dict) -> dict:
     """
-    Tampilkan jumlah & persentase tiap kelas, per aspek, dibandingkan
-    antar split yang diberikan -- untuk memverifikasi hasil stratified split.
-    Terima jumlah split berapa pun, mis. train/val/test atau train/test saja.
+    Muat dataset, terapkan prapemrosesan sesuai konfigurasi, bagi dataset
+    menjadi train/val/test, dan hitung class weights dari training set.
+
+    Returns
+    -------
+    dict dengan kunci:
+      df_train      : DataFrame split pelatihan
+      df_val        : DataFrame split validasi
+      df_test       : DataFrame split pengujian
+      class_weights : dict bobot kelas per aspek (dihitung dari train saja)
+      sentiment_proportions : jumlah dan persentase sentimen per aspek untuk
+                              split train, val, dan test
     """
-    print("\n" + "=" * 60)
-    print("DISTRIBUSI KELAS PER ASPEK PER SPLIT")
-    print("=" * 60)
-
-    for asp in FINAL_ASPECTS:
-        col = f'lbl_{asp}'
-        print(f"\n{asp}:")
-        rows = []
-        for idx, label_name in enumerate(LABEL_NAMES[asp]):
-            row = {'kelas': label_name}
-            for split_name, df_split in splits.items():
-                cnt = int((df_split[col] == idx).sum())
-                pct = 100 * cnt / len(df_split) if len(df_split) else 0.0
-                row[f'{split_name}_n'] = cnt
-                row[f'{split_name}_%'] = round(pct, 1)
-            rows.append(row)
-        print(pd.DataFrame(rows).to_string(index=False))
-
-
-def _load_and_label(config: dict) -> pd.DataFrame:
-    """Muat dataset, terapkan prapemrosesan, dan konversi label -- tahap yang
-    sama dipakai baik oleh split train/val/test maupun train/test (CV)."""
     data_cfg   = config['data']
     prep_flags = config['preprocessing']
+    split_cfg  = data_cfg['split']
     text_col   = data_cfg['text_column']
 
     df = load_data(data_cfg['path'])
@@ -83,27 +144,7 @@ def _load_and_label(config: dict) -> pd.DataFrame:
         )
 
     # Konversi label anotasi ke indeks kelas
-    return convert_labels(df)
-
-
-def prepare_data(config: dict) -> dict:
-    """
-    Muat dataset, terapkan prapemrosesan sesuai konfigurasi, bagi dataset
-    menjadi train/val/test, dan hitung class weights dari training set.
-
-    Returns
-    -------
-    dict dengan kunci:
-      df_train      : DataFrame split pelatihan
-      df_val        : DataFrame split validasi
-      df_test       : DataFrame split pengujian
-      class_weights : dict bobot kelas per aspek (dihitung dari train saja)
-    """
-    if config['data'].get('cv', {}).get('enabled', False):
-        return prepare_data_cv(config)
-
-    split_cfg = config['data']['split']
-    df = _load_and_label(config)
+    df = convert_labels(df)
 
     # Stratified split
     df_train, df_val, df_test = stratified_split(
@@ -113,7 +154,11 @@ def prepare_data(config: dict) -> dict:
         random_state = split_cfg['random_state'],
     )
 
-    print_class_distribution(train=df_train, val=df_val, test=df_test)
+    # Distribusi dihitung per split dari label anotasi asli. Nilai label aspek
+    # masih tersedia meskipun kolom indeks kelas sudah ditambahkan.
+    sentiment_proportions = compute_split_sentiment_proportions(
+        df_train, df_val, df_test
+    )
 
     # Class weights dihitung dari training set saja
     class_weights = compute_class_weights(df_train)
@@ -123,59 +168,7 @@ def prepare_data(config: dict) -> dict:
         'df_val'       : df_val,
         'df_test'      : df_test,
         'class_weights': class_weights,
-    }
-
-
-def prepare_data_cv(config: dict) -> dict:
-    """
-    Versi tanpa val split -- dipakai saat validasi dilakukan lewat
-    cross-validation pada training set (bukan lewat val split terpisah).
-
-    Konfigurasi 'data.split' cukup berisi 'train_ratio' dan 'random_state'
-    (test mengambil sisa rasionya, mis. train_ratio=0.80 -> test=0.20).
-
-    Returns
-    -------
-    dict dengan kunci:
-      df_train      : DataFrame development (akan di-fold lagi saat CV)
-      df_test       : DataFrame split pengujian (holdout, tidak disentuh saat CV)
-      cv_folds      : indeks train/validation untuk setiap fold
-      class_weights : bobot kelas development untuk final retraining
-    """
-    split_cfg = config['data']['split']
-    cv_cfg    = config['data'].get('cv', {})
-    df = _load_and_label(config)
-
-    # Stratified split, hanya train/test
-    df_train, df_test = stratified_split_train_test(
-        df,
-        train_ratio  = split_cfg['train_ratio'],
-        random_state = split_cfg['random_state'],
-    )
-
-    print_class_distribution(development=df_train, test=df_test)
-
-    cv_folds = multilabel_stratified_folds(
-        df_train,
-        n_splits=int(cv_cfg.get('n_splits', 5)),
-        shuffle=bool(cv_cfg.get('shuffle', True)),
-        random_state=int(cv_cfg.get('random_state', split_cfg['random_state'])),
-    )
-    print("\nCROSS-VALIDATION FOLDS")
-    for fold_no, fold in enumerate(cv_folds, start=1):
-        print(
-            f"  Fold {fold_no}: train={len(fold['train_idx'])} | "
-            f"val={len(fold['val_idx'])}"
-        )
-
-    # Class weights dihitung dari training set saja
-    class_weights = compute_class_weights(df_train)
-
-    return {
-        'df_train'     : df_train,
-        'df_test'      : df_test,
-        'cv_folds'     : cv_folds,
-        'class_weights': class_weights,
+        'sentiment_proportions': sentiment_proportions,
     }
 
 
@@ -187,16 +180,11 @@ if __name__ == '__main__':
 
     SAMPLE_CONFIG = {
         'data': {
-            'path'       : 'data/raw/dataset_final.csv',
+            'path'       : 'data/raw/dataset_sisa.csv',
             'text_column': 'Komentar',
             'split': {
-                'train_ratio' : 0.80,
-                'random_state': 42,
-            },
-            'cv': {
-                'enabled'     : True,
-                'n_splits'    : 5,
-                'shuffle'     : True,
+                'train_ratio' : 0.70,
+                'val_ratio'   : 0.15,
                 'random_state': 42,
             },
         },
@@ -217,9 +205,12 @@ if __name__ == '__main__':
 
     data = prepare_data(SAMPLE_CONFIG)
 
-    print(f"Development : {len(data['df_train'])} baris")
-    print(f"CV folds    : {len(data['cv_folds'])}")
-    print(f"Test        : {len(data['df_test'])} baris")
+    print(f"Train : {len(data['df_train'])} baris")
+    print(f"Val   : {len(data['df_val'])} baris")
+    print(f"Test  : {len(data['df_test'])} baris")
+
+    for split_name, proportions in data['sentiment_proportions'].items():
+        print_sentiment_proportions(proportions, split_name)
 
     print("\nSampel teks setelah preprocessing:")
     for _, row in data['df_train'].head(3).iterrows():
@@ -229,25 +220,3 @@ if __name__ == '__main__':
     for asp, w in data['class_weights'].items():
         print(f"  {asp}: {[round(x, 3) for x in w]}")
     print("=" * 60)
-
-    print("\n" + "=" * 60)
-    print("PENGUJIAN prepare_data_cv (train/test saja, untuk cross-validation)")
-    print("=" * 60)
-
-    # CV_CONFIG = {
-    #     'data': {
-    #         'path'       : SAMPLE_CONFIG['data']['path'],
-    #         'text_column': 'Komentar',
-    #         'split': {
-    #             'train_ratio' : 0.80,
-    #             'random_state': 42,
-    #         },
-    #     },
-    #     'preprocessing': SAMPLE_CONFIG['preprocessing'],
-    # }
-
-    # data_cv = prepare_data_cv(CV_CONFIG)
-
-    # print(f"Train : {len(data_cv['df_train'])} baris")
-    # print(f"Test  : {len(data_cv['df_test'])} baris")
-    # print("=" * 60)

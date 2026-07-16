@@ -116,8 +116,8 @@ def main(config_path: str = "configs/experiment_indobert_baseline.yaml"):
     print(f"Menyiapkan data dari {config_path} ...")
     data = prepare_data(model_config)
     print(
-        f"  Development: {len(data['df_train'])} | "
-        f"CV folds: {len(data.get('cv_folds', []))} | "
+        f"  Train: {len(data['df_train'])} | "
+        f"Val: {len(data['df_val'])} | "
         f"Test: {len(data['df_test'])}"
     )
 
