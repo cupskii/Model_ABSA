@@ -83,7 +83,7 @@ def _train_remote(model_config: dict, data: dict, git_commit: Optional[str] = No
 
     mlflow_cfg   = model_config.get('mlflow', {})
     tracking_uri = os.environ.get('MLFLOW_TRACKING_URI') or mlflow_cfg.get(
-        'tracking_uri', 'http://localhost:5001',
+        'tracking_uri', 'http://localhost:5000',
     )
     mlflow.set_tracking_uri(tracking_uri)
 
@@ -127,7 +127,7 @@ def _train_local(model_config: dict, data: dict, git_commit: Optional[str] = Non
     """
     mlflow_cfg   = model_config.get('mlflow', {})
     tracking_uri = os.environ.get('MLFLOW_TRACKING_URI') or mlflow_cfg.get(
-        'tracking_uri', 'http://localhost:5001',
+        'tracking_uri', 'http://localhost:5000',
     )
     mlflow.set_tracking_uri(tracking_uri)
     mlflow.set_experiment(model_config['experiment']['name'])
