@@ -34,7 +34,7 @@ jobs:
     name: Unit test komponen pipeline
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - uses: actions/setup-python@v5
         with:
@@ -55,7 +55,7 @@ jobs:
     needs: unit-test
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Build container image
         run: docker build -t "$IMAGE:${{ github.sha }}" .
@@ -67,6 +67,22 @@ jobs:
       # (_train_remote), yang mencatat run-nya ke server MLflow asli — jadi
       # container ini WAJIB memakai tracking URI yang sama (bukan sqlite
       # lokal) supaya bisa mengunduh checkpoint balik dari run tersebut.
+      # _train_remote memanggil Modal Function yang sudah di-deploy berdasarkan
+      # nama. Deploy ulang worker dari commit yang sama sebelum integration test
+      # agar kontrak artifact (termasuk folder `checkpoint`) tidak tertinggal
+      # pada revisi Modal lama.
+      - name: Deploy Modal training worker
+        env:
+          MODAL_TOKEN_ID: ${{ secrets.MODAL_TOKEN_ID }}
+          MODAL_TOKEN_SECRET: ${{ secrets.MODAL_TOKEN_SECRET }}
+        run: |
+          docker run --rm \
+            --entrypoint modal \
+            -e MODAL_TOKEN_ID \
+            -e MODAL_TOKEN_SECRET \
+            "$IMAGE:${{ github.sha }}" \
+            deploy /app/modal_app.py
+
       - name: Integration test (end-to-end, sampel & epoch kecil)
         env:
           MODAL_TOKEN_ID: ${{ secrets.MODAL_TOKEN_ID }}
