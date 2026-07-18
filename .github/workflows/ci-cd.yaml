@@ -60,21 +60,7 @@ jobs:
       - name: Build container image
         run: docker build -t "$IMAGE:${{ github.sha }}" .
 
-      # train_step (_train_remote) memanggil modal.Function.from_name(),
-      # yang butuh app 'absa-training' SUDAH ter-deploy — deploy ulang di
-      # sini supaya lookup selalu mengacu ke kode dari commit yang sedang
-      # diuji, bukan deployment lama/tidak ada sama sekali.
-      - name: Deploy Modal training app
-        env:
-          MODAL_TOKEN_ID: ${{ secrets.MODAL_TOKEN_ID }}
-          MODAL_TOKEN_SECRET: ${{ secrets.MODAL_TOKEN_SECRET }}
-        run: |
-          docker run --rm \
-            -e MODAL_TOKEN_ID \
-            -e MODAL_TOKEN_SECRET \
-            --entrypoint modal \
-            "$IMAGE:${{ github.sha }}" \
-            deploy modal_app.py
+    
 
       # End-to-end pada sampel kecil (150 baris) & 1 epoch — hanya memastikan
       # pipeline berjalan utuh. Training didelegasikan ke GPU Modal
