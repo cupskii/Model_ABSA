@@ -92,6 +92,11 @@ def train_remote(model_config: dict, data: dict, git_commit: Optional[str] = Non
     mlflow.set_tracking_uri(os.environ["MLFLOW_TRACKING_URI"])
     with mlflow.start_run(run_id=train_result["run_id"]):
         mlflow.log_artifacts(train_result["save_dir"], artifact_path="checkpoint")
+        # Return the absolute S3/R2 URI so the caller does not resolve it again
+        # through RunsArtifactRepository.
+        train_result["checkpoint_artifact_uri"] = mlflow.get_artifact_uri(
+            "checkpoint"
+        )
 
     return train_result
 

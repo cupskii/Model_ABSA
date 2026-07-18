@@ -90,10 +90,16 @@ def _train_remote(model_config: dict, data: dict, git_commit: Optional[str] = No
     save_dir = train_result['save_dir']
     os.makedirs(save_dir, exist_ok=True)
     print(f"  Mengunduh checkpoint dari MLflow run {train_result['run_id'][:8]} ke {save_dir}/ ...")
+
+    checkpoint_uri = train_result.get('checkpoint_artifact_uri')
+    if not checkpoint_uri:
+        run = mlflow.MlflowClient().get_run(train_result['run_id'])
+        checkpoint_uri = f"{run.info.artifact_uri.rstrip('/')}/checkpoint"
+
+    print(f"  Artifact URI: {checkpoint_uri}")
     downloaded_dir = mlflow.artifacts.download_artifacts(
-        run_id        = train_result['run_id'],
-        artifact_path = 'checkpoint',
-        dst_path      = save_dir,
+        artifact_uri = checkpoint_uri,
+        dst_path     = save_dir,
     )
     # download_artifacts menaruh isi artifact_path di save_dir/checkpoint/ —
     # ratakan ke save_dir langsung agar sama dengan struktur hasil training lokal.
