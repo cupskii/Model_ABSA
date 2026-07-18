@@ -25,6 +25,30 @@ from pipeline.train_model import train_model
 from run_experiment import flatten_config, get_git_commit
 
 
+def _configure_artifact_store_env() -> None:
+    """Normalize local R2/B2 names and reject empty artifact credentials."""
+    aliases = {
+        'AWS_ACCESS_KEY_ID': ('R2_ACCESS_KEY_ID', 'B2_KEY_ID'),
+        'AWS_SECRET_ACCESS_KEY': ('R2_SECRET_ACCESS_KEY', 'B2_APPLICATION_KEY'),
+        'MLFLOW_S3_ENDPOINT_URL': ('R2_ENDPOINT_URL', 'B2_ENDPOINT_URL'),
+    }
+    for target, sources in aliases.items():
+        if os.environ.get(target):
+            continue
+        for source in sources:
+            if os.environ.get(source):
+                os.environ[target] = os.environ[source]
+                break
+
+    missing = [name for name in aliases if not os.environ.get(name)]
+    if missing:
+        raise RuntimeError(
+            "Konfigurasi artifact store MLflow kosong: " + ", ".join(missing)
+        )
+
+    os.environ.setdefault('AWS_DEFAULT_REGION', 'auto')
+
+
 def run_train_model(model_config: dict, data: dict, git_commit: Optional[str] = None,
                      run_id: Optional[str] = None) -> dict:
     """
@@ -74,6 +98,10 @@ def _train_remote(model_config: dict, data: dict, git_commit: Optional[str] = No
     kontainer selalu menghasilkan 'unknown'/commit yang salah.
     """
     import modal
+
+    # Validate before starting the paid GPU task; these credentials are needed
+    # by this caller to download the checkpoint from R2/B2 afterwards.
+    _configure_artifact_store_env()
 
     git_commit = git_commit or get_git_commit()
 

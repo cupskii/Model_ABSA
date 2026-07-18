@@ -29,13 +29,17 @@ def load_dotenv(path: Path) -> None:
 def configure_r2_environment() -> None:
     """Map the repository's R2 variable names to boto3/MLflow names."""
     aliases = {
-        "AWS_ACCESS_KEY_ID": "R2_ACCESS_KEY_ID",
-        "AWS_SECRET_ACCESS_KEY": "R2_SECRET_ACCESS_KEY",
-        "MLFLOW_S3_ENDPOINT_URL": "R2_ENDPOINT_URL",
+        "AWS_ACCESS_KEY_ID": ("R2_ACCESS_KEY_ID", "B2_KEY_ID"),
+        "AWS_SECRET_ACCESS_KEY": ("R2_SECRET_ACCESS_KEY", "B2_APPLICATION_KEY"),
+        "MLFLOW_S3_ENDPOINT_URL": ("R2_ENDPOINT_URL", "B2_ENDPOINT_URL"),
     }
-    for target, source in aliases.items():
-        if source in os.environ:
-            os.environ.setdefault(target, os.environ[source])
+    for target, sources in aliases.items():
+        if os.environ.get(target):
+            continue
+        for source in sources:
+            if os.environ.get(source):
+                os.environ[target] = os.environ[source]
+                break
     os.environ.setdefault("AWS_DEFAULT_REGION", "auto")
 
 
