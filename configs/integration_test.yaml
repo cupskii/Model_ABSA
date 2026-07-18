@@ -6,8 +6,8 @@
 # model yang layak. Lihat .github/workflows/ci-cd.yaml.
 
 experiment:
-  name: "integration_test"
-  run_name: "ci_smoke_test"
+  name: "test"
+  run_name: "ci_cd_smoke_test"
   seed: 42
   description: >
     Smoke test end-to-end automated ML workflow pipeline pada sampel kecil.
