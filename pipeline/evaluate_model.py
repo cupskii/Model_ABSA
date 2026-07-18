@@ -48,6 +48,19 @@ def _eval_loop(model, loader, device):
                 all_preds[asp].extend(preds.tolist())
                 all_labels[asp].extend(labels.tolist())
 
+    detect_f1, sentiment_f1, avg_detect, avg_sentiment = _compute_split_metrics(
+        all_preds, all_labels
+    )
+    return detect_f1, sentiment_f1, avg_detect, avg_sentiment, all_preds, all_labels
+
+
+def _compute_split_metrics(all_preds: dict, all_labels: dict) -> tuple:
+    """
+    Hitung detect_f1/sentiment_f1 (per aspek & rata-rata tertimbang) langsung
+    dari prediksi & label mentah. Dipisah dari _eval_loop supaya bisa dipakai
+    ulang oleh baseline non-model (lihat compute_metrics_from_predictions,
+    dipakai run_baseline_random.py) tanpa perlu model/DataLoader.
+    """
     detect_f1    = {}
     sentiment_f1 = {}
 
@@ -75,7 +88,7 @@ def _eval_loop(model, loader, device):
         if sum(n_sent) > 0 else 0.0
     )
 
-    return detect_f1, sentiment_f1, avg_detect, avg_sentiment, all_preds, all_labels
+    return detect_f1, sentiment_f1, avg_detect, avg_sentiment
 
 
 def _prf(tp: int, s: int, g: int) -> tuple:
@@ -171,6 +184,20 @@ def _flat_metrics(det_f1: dict, sent_f1: dict, avg_det: float, avg_sent: float,
         _, _, metrics[f'test_{k}_pair_f1']            = pooled['per_aspect_pair'][asp]
         _, _, metrics[f'test_{k}_aspect_detect_f1']   = pooled['per_aspect_detect'][asp]
     return metrics
+
+
+def compute_metrics_from_predictions(all_preds: dict, all_labels: dict) -> dict:
+    """
+    Hitung metrik test set (format flat sama seperti compute_test_metrics /
+    evaluate_model()) langsung dari prediksi & label mentah, tanpa model.
+
+    Dipakai oleh baseline non-neural (mis. baseline acak, lihat
+    run_baseline_random.py) supaya hasilnya bisa dibandingkan lurus dengan
+    model IndoBERT lewat rumus metrik yang identik.
+    """
+    det_f1, sent_f1, avg_det, avg_sent = _compute_split_metrics(all_preds, all_labels)
+    pooled = compute_pooled_metrics(all_preds, all_labels)
+    return _flat_metrics(det_f1, sent_f1, avg_det, avg_sent, pooled)
 
 
 def compute_test_metrics(model, tokenizer, config: dict, data: dict) -> dict:

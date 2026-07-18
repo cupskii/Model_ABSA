@@ -1,0 +1,32 @@
+experiment:
+  name: "absa_baselines"
+  run_name: "random_uniform"
+  seed: 42
+  description: >
+    Baseline acak (uniform random) — setiap aspek diprediksi dengan peluang
+    sama rata di antara seluruh kelasnya (termasuk 'None'), tanpa melihat
+    data sama sekali. Lower bound pembanding untuk model IndoBERT.
+
+# data & preprocessing harus SAMA PERSIS dengan konfigurasi eksperimen model
+# (configs/experiment_indobert_baseline.yaml) supaya test split yang dinilai
+# identik dan perbandingan metrik valid.
+data:
+  path: "data/raw/dataset_final.csv"
+  text_column: "Komentar"
+  split:
+    train_ratio: 0.70
+    val_ratio: 0.15
+    random_state: 42
+
+preprocessing:
+  remove_emoji: true
+  lowercase: true
+  remove_url_mention: true
+  compress_repeated_chars: true
+  remove_special_chars: true
+  normalize_slang: true
+  remove_stopwords: false
+
+mlflow:
+  tracking_uri: http://localhost:5000
+  registry_name: "absa_indobert"
