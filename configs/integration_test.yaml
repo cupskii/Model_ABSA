@@ -43,14 +43,12 @@ model:
     dropout_rate: 0.1
     batch_size: 8
     learning_rate: 5.0e-05
-    num_epochs: 1          # epoch kecil — cukup untuk memastikan pipeline jalan
+    num_epochs: 1          
     warmup_ratio: 0.05
     weight_decay: 0.01
     max_grad_norm: 1.0
     patience: 1
 
 mlflow:
-  # Di CI di-override lewat env MLFLOW_TRACKING_URI=sqlite:///... sehingga
-  # tidak butuh MLflow server; sqlite mendukung tracking + model registry.
   tracking_uri: "sqlite:///mlflow_ci.db"
   registry_name: "absa_indobert_ci"
