@@ -1,18 +1,6 @@
-# Container image Automated ML Workflow Pipeline (ABSA Retraining)
-# ==================================================================
-# Berisi seluruh berkas implementasi pipeline beserta instalasi seluruh
-# dependensinya. Dibangun pada tahap CI setelah unit test lolos, diuji
-# integration test end-to-end, lalu disimpan ke container registry
-# (GHCR). Lihat .github/workflows/ci-cd.yaml.
-#
-# Build : docker build -t absa-pipeline .
-# Run   : docker run --rm absa-pipeline run
-# Smoke : docker run --rm -e MLFLOW_TRACKING_URI=sqlite:////tmp/mlflow_ci.db \
-#           absa-pipeline run --config_path configs/integration_test.yaml
-
 FROM python:3.12-slim
 
-# git dibutuhkan DVC (versioning dataset pada tahap extract_data)
+
 RUN apt-get update \
     && apt-get install -y --no-install-recommends git \
     && rm -rf /var/lib/apt/lists/*

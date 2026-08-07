@@ -1,12 +1,3 @@
-"""
-Mekanisme Trigger
------------------
-  1. Terjadwal (scheduled)  → Metaflow Scheduler berdasarkan @schedule
-  2. Manual / ad-hoc        → python workflow/flow.py run [--param ...]
-  3. Eksternal (monitoring) → POST http://localhost:8002/trigger
-                              (lihat workflow/trigger.py)
-"""
-
 import os
 import sys
 import yaml
@@ -164,41 +155,38 @@ class ABSARetrainingFlow(FlowSpec):
             self.model_config, self.train_result, self.data
         )
 
-        self.next(self.validate_model)
+        self.next(self.package_model)
 
-    # ── Step 7: Validate Model ────────────────────────────────────────────────
+    # ── Step 7: Package Model ─────────────────────────────────────────────────
     @step
-    def validate_model(self):
+    def package_model(self):
         """
-        Validasi apakah model baru memenuhi threshold minimum dan lebih
-        baik dari model yang sedang berjalan di produksi.
+        Bungkus checkpoint sebagai artifact pyfunc di MLflow run — TANPA
+        registrasi/alias. Selalu dijalankan (tidak ada gerbang validasi);
+        registrasi ke Model Registry + promosi alias champion/archived
+        sekarang murni keputusan manual lewat tombol "Promote" di backend.
         """
-        from workflow.stages.validate_model import run_validate_model
+        from workflow.stages.package_model import run_package_model
 
-        print(f"\n[6/7] Validasi model...")
-        self.model_validation = run_validate_model(
-            self.metrics, self.data, self.workflow_config, self.model_config
-        )
+        print(f"\n[6/7] Packaging model ke MLflow...")
+        self.package_result = run_package_model(self.train_result, self.model_config)
 
-        self.next(self.register_model)
+        self.next(self.compare_champion)
 
-    # ── Step 8: Register Model ────────────────────────────────────────────────
+    # ── Step 8: Compare with Champion ─────────────────────────────────────────
     @step
-    def register_model(self):
+    def compare_champion(self):
         """
-        Daftarkan model yang sudah divalidasi ke MLflow Model Registry
-        dengan stage 'Staging'. Dilewati (tidak mendaftarkan) jika model
-        tidak lolos validasi.
+        Muat model yang sedang memegang alias MLflow `champion` (kalau ada)
+        dan evaluasi ulang pada test split yang sama, supaya kedua metrik
+        utamanya (Sentiment F1, Detection F1) bisa ditampilkan berdampingan
+        dengan model baru di UI. Murni informasional — tidak ada pass/fail.
         """
-        from workflow.stages.register_model import run_register_model
+        from workflow.stages.compare_champion import run_compare_champion
 
-        print(f"\n[7/7] Registrasi model...")
-        self.registry_result = run_register_model(
-            model_validation = self.model_validation,
-            train_result     = self.train_result,
-            metrics          = self.metrics,
-            workflow_config  = self.workflow_config,
-            model_config     = self.model_config,
+        print(f"\n[7/7] Membandingkan dengan model champion saat ini...")
+        self.champion_result = run_compare_champion(
+            self.model_config, self.workflow_config, self.data
         )
 
         self.next(self.end)
@@ -207,10 +195,25 @@ class ABSARetrainingFlow(FlowSpec):
     @step
     def end(self):
         """Cetak ringkasan eksekusi pipeline."""
-        ext = self.extraction_result
-        met = self.metrics
-        val = self.model_validation
-        reg = self.registry_result
+        ext   = self.extraction_result
+        met   = self.metrics
+        champ = self.champion_result
+        run_id = self.train_result['run_id']
+
+        mlflow_cfg   = self.model_config.get('mlflow', {})
+        tracking_uri = os.environ.get('MLFLOW_TRACKING_URI') or mlflow_cfg.get(
+            'tracking_uri', 'http://localhost:5000',
+        )
+        # MLFLOW_TRACKING_URI di dalam container metaflow-trigger memakai hostname
+        # docker-internal (mis. http://mlflow:5000) — cocok untuk panggilan API
+        # antar-container, tapi tidak bisa dibuka browser user. MLFLOW_PUBLIC_URL
+        # (opsional) dipakai khusus untuk link yang ditampilkan ke user.
+        public_uri = os.environ.get('MLFLOW_PUBLIC_URL') or tracking_uri
+        experiment_id = self.train_result.get('experiment_id')
+        mlflow_run_url = (
+            f"{public_uri.rstrip('/')}/#/experiments/{experiment_id}/runs/{run_id}"
+            if experiment_id else None
+        )
 
         print(f"\n{'='*60}")
         print(f"ABSA RETRAINING PIPELINE SELESAI")
@@ -221,14 +224,14 @@ class ABSARetrainingFlow(FlowSpec):
         print(f"  Data cukup          : {ext['data_sufficient']}")
         print(f"  Test Sentiment F1   : {met.get('test_mean_sentiment_f1', 0):.4f}")
         print(f"  Test Detection F1   : {met.get('test_mean_detect_f1', 0):.4f}")
-        print(f"  Lolos validasi      : {val['passed']}")
-        if not val['passed']:
-            for reason in val['failure_reasons']:
-                print(f"    ✗ {reason}")
-        print(f"  Model terdaftar     : {reg['registered']}")
-        if reg['registered']:
-            print(f"    → {reg['reason']}")
-        print(f"  MLflow run ID       : {self.train_result['run_id'][:12]}")
+        if champ['champion_exists'] and champ['metrics']:
+            print(f"  Champion ada        : True (versi {champ['champion_version']})")
+            print(f"  Champion Sentiment F1: {champ['metrics']['test_mean_sentiment_f1']:.4f}")
+            print(f"  Champion Detection F1: {champ['metrics']['test_mean_detect_f1']:.4f}")
+        else:
+            print(f"  Champion ada        : False ({champ['reason']})")
+        print(f"  MLflow Run ID       : {run_id}")
+        print(f"  MLflow Run URL      : {mlflow_run_url}")
         print(f"{'='*60}")
 
 

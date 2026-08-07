@@ -11,6 +11,8 @@ modal>=0.65.0
 # HTTP client untuk ekstraksi data dari monitoring API
 requests>=2.31.0
 
-# Entry point trigger eksternal (HTTP server)
+# Entry point trigger eksternal (HTTP server) — python-multipart wajib untuk
+# endpoint /trigger yang menerima dataset via multipart/form-data (File/Form)
 fastapi>=0.100.0
 uvicorn>=0.23.0
+python-multipart>=0.0.9

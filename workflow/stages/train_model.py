@@ -136,6 +136,9 @@ def _train_remote(model_config: dict, data: dict, git_commit: Optional[str] = No
             os.replace(os.path.join(downloaded_dir, fname), os.path.join(save_dir, fname))
         os.rmdir(downloaded_dir)
 
+    if 'experiment_id' not in train_result:
+        train_result['experiment_id'] = mlflow.MlflowClient().get_run(train_result['run_id']).info.experiment_id
+
     print(f"  Pelatihan (Modal) selesai. Best Val Sentiment F1: {train_result['best_val_f1']:.4f}")
     return train_result
 
@@ -211,6 +214,7 @@ def _train_local(model_config: dict, data: dict, git_commit: Optional[str] = Non
     # Kembalikan hanya metadata yang dapat diserialisasi Metaflow (bukan objek model)
     result = {
         'run_id'         : run_id,
+        'experiment_id'  : run.info.experiment_id,
         'save_dir'       : save_dir,
         'best_val_f1'    : trained['best_val_f1'],
         'best_val_det_f1': trained['best_val_det_f1'],

@@ -41,5 +41,15 @@ def run_evaluate_model(model_config: dict, train_result: dict, data: dict) -> di
             if os.path.isfile(fpath):
                 mlflow.log_artifact(fpath, artifact_path='model_artifacts')
 
+
+        eval_split_dir = os.path.join(save_dir, 'eval_split')
+        os.makedirs(eval_split_dir, exist_ok=True)
+        val_path = os.path.join(eval_split_dir, 'val.csv')
+        test_path = os.path.join(eval_split_dir, 'test.csv')
+        data['df_val'].to_csv(val_path, index=False)
+        data['df_test'].to_csv(test_path, index=False)
+        mlflow.log_artifact(val_path, artifact_path='eval_split')
+        mlflow.log_artifact(test_path, artifact_path='eval_split')
+
     print(f"  Test Mean Sentiment F1: {metrics.get('test_mean_sentiment_f1', 0):.4f} ← metrik utama")
     return metrics

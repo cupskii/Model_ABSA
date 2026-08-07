@@ -13,13 +13,15 @@ SENTIMENT_LABELS = {
     0: 'Netral',
     1: 'Positif',
 }
+NONE_LABEL = 'None'
 
 
 def compute_sentiment_proportions(df: pd.DataFrame) -> dict:
-    """Hitung jumlah dan proporsi sentimen berlabel pada setiap aspek.
+    """Hitung jumlah dan proporsi semua kelas sentimen pada setiap aspek.
 
-    Nilai NaN tidak dimasukkan ke penyebut proporsi karena menandakan aspek
-    tersebut tidak dibahas. Jumlah NaN tetap disertakan sebagai ``n_missing``.
+    Nilai NaN ditampilkan sebagai kelas ``None`` karena menandakan aspek tidak
+    dibahas. Penyebut persentase adalah seluruh baris sehingga proporsi
+    Negatif, Netral, Positif, dan None berjumlah 100% untuk setiap aspek.
     """
     proportions = {}
 
@@ -27,21 +29,33 @@ def compute_sentiment_proportions(df: pd.DataFrame) -> dict:
         if aspect not in df.columns:
             continue
 
-        labeled = df[aspect].dropna()
+        aspect_values = df[aspect]
+        labeled = aspect_values.dropna()
+        n_total = int(len(aspect_values))
         n_labeled = int(len(labeled))
         sentiments = {}
 
         for value, name in SENTIMENT_LABELS.items():
             count = int((labeled == value).sum())
-            percentage = (count / n_labeled * 100) if n_labeled else 0.0
+            percentage = (count / n_total * 100) if n_total else 0.0
             sentiments[name] = {
                 'count': count,
                 'percentage': round(percentage, 2),
             }
 
+        n_missing = int(aspect_values.isna().sum())
+        sentiments[NONE_LABEL] = {
+            'count': n_missing,
+            'percentage': round(
+                (n_missing / n_total * 100) if n_total else 0.0,
+                2,
+            ),
+        }
+
         proportions[aspect] = {
+            'n_total': n_total,
             'n_labeled': n_labeled,
-            'n_missing': int(df[aspect].isna().sum()),
+            'n_missing': n_missing,
             'sentiments': sentiments,
         }
 
@@ -67,20 +81,21 @@ def print_sentiment_proportions(
     """Tampilkan proporsi sentimen per aspek dalam bentuk tabel teks."""
     split_label = f" - {split_name.upper()}" if split_name else ''
     print(f"\nProporsi sentimen per aspek{split_label} "
-          "(berdasarkan data berlabel):")
-    print(f"{'Aspek':<25} {'Berlabel':>8} {'Negatif':>17} "
-          f"{'Netral':>17} {'Positif':>17}")
-    print('-' * 88)
+          "(berdasarkan seluruh data):")
+    print(f"{'Aspek':<25} {'Total':>8} {'Negatif':>17} "
+          f"{'Netral':>17} {'Positif':>17} {'None':>17}")
+    print('-' * 106)
 
     for aspect, stats in proportions.items():
         cells = []
-        for name in SENTIMENT_LABELS.values():
+        for name in (*SENTIMENT_LABELS.values(), NONE_LABEL):
             sentiment = stats['sentiments'][name]
             cells.append(
                 f"{sentiment['count']} ({sentiment['percentage']:.2f}%)"
             )
-        print(f"{aspect:<25} {stats['n_labeled']:>8} "
-              f"{cells[0]:>17} {cells[1]:>17} {cells[2]:>17}")
+        print(f"{aspect:<25} {stats['n_total']:>8} "
+              f"{cells[0]:>17} {cells[1]:>17} {cells[2]:>17} "
+              f"{cells[3]:>17}")
 
 
 def apply_preprocessing(text: str, flags: dict) -> str:
@@ -180,7 +195,7 @@ if __name__ == '__main__':
 
     SAMPLE_CONFIG = {
         'data': {
-            'path'       : 'data/raw/dataset_sisa.csv',
+            'path'       : 'data/raw/dataset_final.csv',
             'text_column': 'Komentar',
             'split': {
                 'train_ratio' : 0.70,

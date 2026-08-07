@@ -54,6 +54,41 @@ services:
       --allowed-hosts "*"
 
 
+  metaflow-trigger:
+    build:
+      context: .
+      dockerfile: Dockerfile
+
+    container_name: metaflow-trigger
+
+    restart: unless-stopped
+
+    depends_on:
+      - mlflow
+
+    ports:
+      - "8002:8002"  
+
+    entrypoint: ["python", "workflow/trigger.py"]
+    command: ["--serve", "--host", "0.0.0.0", "--port", "8002"]
+
+    environment:
+      AWS_ACCESS_KEY_ID: ${R2_ACCESS_KEY_ID}
+      AWS_SECRET_ACCESS_KEY: ${R2_SECRET_ACCESS_KEY}
+      MLFLOW_S3_ENDPOINT_URL: ${R2_ENDPOINT_URL}
+      AWS_DEFAULT_REGION: auto
+      MLFLOW_TRACKING_URI: http://mlflow:5000
+      MLFLOW_PUBLIC_URL: http://localhost:5000  # dipakai khusus untuk link yang ditampilkan ke user di UI
+
+      MODAL_TOKEN_ID: ${MODAL_TOKEN_ID}
+      MODAL_TOKEN_SECRET: ${MODAL_TOKEN_SECRET}
+
+    volumes:
+      - retrain_uploads:/app/data/retrain_uploads
+      - retrain_configs:/app/configs/_generated
+      - retrain_logs:/app/workflow/.logs
+
+
   # metaflow-metadata:
   #   image: netflixoss/metaflow_metadata_service:latest
   #   container_name: metaflow-metadata
@@ -135,3 +170,6 @@ services:
 volumes:
 
   postgres_data:
+  retrain_uploads:
+  retrain_configs:
+  retrain_logs:

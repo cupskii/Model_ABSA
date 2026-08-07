@@ -174,6 +174,7 @@ class TestTrainModel:
 
         mock_mlflow = MagicMock()
         mock_mlflow.start_run.return_value.__enter__.return_value.info.run_id = 'run123'
+        mock_mlflow.start_run.return_value.__enter__.return_value.info.experiment_id = 'exp1'
         trained = {'best_val_f1': 0.81, 'best_val_det_f1': 0.90, 'save_dir': str(save_dir)}
 
         model_config = {
@@ -189,6 +190,7 @@ class TestTrainModel:
         mock_train.assert_called_once()
         assert result == {
             'run_id'         : 'run123',
+            'experiment_id'  : 'exp1',
             'save_dir'       : str(save_dir),
             'best_val_f1'    : 0.81,
             'best_val_det_f1': 0.90,
@@ -223,127 +225,72 @@ class TestEvaluateModel:
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# 6. Validasi Model (workflow/stages/validate_model.py)
+# 6. Packaging Model (workflow/stages/package_model.py)
 # ══════════════════════════════════════════════════════════════════════════════
 
-class TestValidateModel:
+class TestPackageModel:
 
-    VALIDATION_CFG = {
-        'min_sentiment_f1'   : 0.5,
-        'min_detection_f1'   : 0.5,
-        'comparison_metric'  : 'test_mean_sentiment_f1',
-        'require_improvement': True,
-        'skip_comparison_if_no_production': True,
-    }
+    def test_packages_checkpoint_as_pyfunc_without_registering(self, tmp_path):
+        """Selalu membungkus checkpoint sebagai artifact pyfunc di run yang sama —
+        tidak pernah memanggil register_model/set alias (itu tugas Promote di BE_ABSA)."""
+        from workflow.stages import package_model as stage
 
-    def test_threshold_pass_and_fail(self):
-        """Uji 1: metrik >= threshold lulus; di bawah threshold gagal dengan alasan."""
-        from workflow.stages.validate_model import _check_threshold
+        mock_mlflow = MagicMock()
+        train_result = {'run_id': 'run123', 'save_dir': str(tmp_path)}
 
-        ok = _check_threshold(
-            {'test_mean_sentiment_f1': 0.7, 'test_mean_detect_f1': 0.8},
-            self.VALIDATION_CFG,
-        )
-        assert ok['passed'] and ok['reasons'] == []
+        with patch.object(stage, 'mlflow', mock_mlflow):
+            result = stage.run_package_model(train_result, model_config={'mlflow': {}})
 
-        bad = _check_threshold(
-            {'test_mean_sentiment_f1': 0.3, 'test_mean_detect_f1': 0.8},
-            self.VALIDATION_CFG,
-        )
-        assert not bad['passed']
-        assert any('Sentiment F1' in r for r in bad['reasons'])
-
-    def test_comparison_bootstrap_mode(self):
-        """Uji 2: belum ada model produksi → lulus otomatis jika skip=True, gagal jika False."""
-        from workflow.stages.validate_model import _check_vs_production
-
-        no_prod = {'exists': False, 'value': None, 'reason': 'belum ada model produksi'}
-        metrics = {'test_mean_sentiment_f1': 0.7}
-        data = {}
-        model_config = {'data': {'path': 'data/raw/dataset.csv'}}
-
-        assert _check_vs_production(metrics, no_prod, self.VALIDATION_CFG, data, model_config)['passed']
-
-        strict_cfg = dict(self.VALIDATION_CFG, skip_comparison_if_no_production=False)
-        assert not _check_vs_production(metrics, no_prod, strict_cfg, data, model_config)['passed']
-
-    def test_comparison_vs_production_metric(self):
-        """Uji 2: model baru harus lebih baik dari metrik model produksi."""
-        from workflow.stages.validate_model import _check_vs_production
-
-        data = {}
-        model_config = {'data': {'path': 'data/raw/dataset.csv'}}
-        # dataset_path sama dengan model_config → same_dataset=True, memakai
-        # metrik produksi yang sudah tercatat tanpa perlu re-evaluasi checkpoint.
-        prod = {
-            'exists': True, 'value': 0.6, 'reason': 'produksi v1',
-            'dataset_path': 'data/raw/dataset.csv',
-        }
-
-        better = _check_vs_production(
-            {'test_mean_sentiment_f1': 0.7}, prod, self.VALIDATION_CFG, data, model_config,
-        )
-        assert better['passed'] and better['details']['delta'] == pytest.approx(0.1)
-
-        worse = _check_vs_production(
-            {'test_mean_sentiment_f1': 0.5}, prod, self.VALIDATION_CFG, data, model_config,
-        )
-        assert not worse['passed']
+        assert result == {'packaged': True, 'model_uri': 'runs:/run123/model'}
+        mock_mlflow.start_run.assert_called_once_with(run_id='run123')
+        mock_mlflow.pyfunc.log_model.assert_called_once()
+        assert mock_mlflow.register_model.called is False
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# 7. Registrasi Model (workflow/stages/register_model.py)
+# 7. Perbandingan Champion (workflow/stages/compare_champion.py)
 # ══════════════════════════════════════════════════════════════════════════════
 
-class TestRegisterModel:
+class TestCompareChampion:
 
-    WORKFLOW_CFG = {'mlflow': {'tracking_uri' : 'sqlite:///test.db',
-                               'registry_name': 'absa_test',
-                               'register_stage': 'Staging'}}
+    WORKFLOW_CFG = {'mlflow': {'tracking_uri': 'sqlite:///test.db', 'registry_name': 'absa_test'}}
 
-    def test_failed_validation_skips_registration(self):
-        """Model tidak lolos validasi → tidak didaftarkan, registry tidak disentuh."""
-        from workflow.stages.register_model import run_register_model
+    def test_no_champion_alias_returns_exists_false(self):
+        """Belum ada versi dengan alias champion → murni informasional, tidak gagal."""
+        from mlflow.exceptions import MlflowException
+        from workflow.stages import compare_champion as stage
 
-        result = run_register_model(
-            model_validation = {'passed': False, 'failure_reasons': ['F1 di bawah threshold']},
-            train_result     = {'run_id': 'run123', 'save_dir': '/tmp/x'},
-            metrics          = {},
-            workflow_config  = self.WORKFLOW_CFG,
-            model_config     = {},
-        )
-        assert result['registered'] is False
-        assert result['model_version'] is None
-        assert 'tidak lolos validasi' in result['reason']
+        mock_client = MagicMock()
+        mock_client.get_model_version_by_alias.side_effect = MlflowException('tidak ditemukan')
 
-    def test_passed_validation_registers_to_staging(self, tmp_path):
-        """Model lolos validasi → didaftarkan ke registry dan ditransisikan ke Staging."""
-        from workflow.stages import register_model as stage
-
-        mock_mlflow  = MagicMock()
-        mock_mlflow.register_model.return_value.version = 3
-        mock_client  = MagicMock()
-        metrics      = {'test_mean_sentiment_f1': 0.7, 'test_mean_detect_f1': 0.8}
-
-        with patch.object(stage, 'mlflow', mock_mlflow), \
+        with patch.object(stage, 'mlflow', MagicMock()), \
              patch.object(stage, 'MlflowClient', return_value=mock_client):
-            result = stage.run_register_model(
-                model_validation = {'passed': True, 'failure_reasons': []},
-                train_result     = {'run_id': 'run123', 'save_dir': str(tmp_path)},
-                metrics          = metrics,
-                workflow_config  = self.WORKFLOW_CFG,
-                model_config     = {},
+            result = stage.run_compare_champion(
+                model_config={'mlflow': {}}, workflow_config=self.WORKFLOW_CFG, data={},
             )
 
-        assert result['registered'] is True
-        assert result['model_version'] == 3
-        assert result['model_stage'] == 'Staging'
-        # Metrik test set ikut tersimpan dalam bundle artifact
-        assert (tmp_path / 'metrics.json').is_file()
-        mock_mlflow.register_model.assert_called_once_with(
-            model_uri='runs:/run123/model', name='absa_test',
-        )
-        mock_client.transition_model_version_stage.assert_called_once_with(
-            name='absa_test', version=3, stage='Staging',
-            archive_existing_versions=True,
-        )
+        assert result['champion_exists'] is False
+        assert result['metrics'] is None
+        assert 'champion' in result['reason'].lower()
+
+    def test_champion_exists_reevaluates_on_same_test_split(self):
+        """Champion ada → diunduh, direkonstruksi, dan dievaluasi ulang pada test split ini."""
+        from types import SimpleNamespace
+        from workflow.stages import compare_champion as stage
+
+        mock_client = MagicMock()
+        mock_client.get_model_version_by_alias.return_value = SimpleNamespace(version='5')
+        champion_metrics = {'test_mean_sentiment_f1': 0.7, 'test_mean_detect_f1': 0.8}
+
+        with patch.object(stage, 'mlflow', MagicMock()), \
+             patch.object(stage, 'MlflowClient', return_value=mock_client), \
+             patch.object(stage, '_download_and_reconstruct',
+                          return_value=(MagicMock(), MagicMock(), {})), \
+             patch.object(stage, 'compute_test_metrics', return_value=champion_metrics):
+            result = stage.run_compare_champion(
+                model_config={'mlflow': {}}, workflow_config=self.WORKFLOW_CFG, data={'df_test': None},
+            )
+
+        assert result['champion_exists'] is True
+        assert result['champion_version'] == '5'
+        assert result['metrics'] == {'test_mean_sentiment_f1': 0.7, 'test_mean_detect_f1': 0.8}

@@ -1,6 +1,7 @@
 # Tidak ikut ke dalam container image pipeline
 .git
 .venv
+actions-runner
 __pycache__
 **/__pycache__
 *.pyc
