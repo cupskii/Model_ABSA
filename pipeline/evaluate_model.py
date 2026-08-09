@@ -72,10 +72,17 @@ def _compute_split_metrics(all_preds: dict, all_labels: dict) -> tuple:
         # Detection F1: semua kelas termasuk None
         detect_f1[asp] = f1_score(y_true, y_pred, average='macro', zero_division=0)
 
-        # Sentiment F1: hanya sampel dengan label bukan None
+        # Sentiment F1: hanya sampel dengan label bukan None, dan macro hanya
+        # atas kelas sentimen (labels= eksplisit). Tanpa labels=, sklearn
+        # memakai gabungan kelas di y_true DAN y_pred — prediksi None pada
+        # sampel aktif ikut masuk sebagai kelas ke-4 ber-F1 0 (tidak pernah
+        # ada gold None di dalam mask), sehingga macro dibagi 4 dan nilai
+        # maksimum efektif turun ke 0.75. Kesalahan memprediksi None tetap
+        # terhukum lewat recall kelas asli dan lewat Pair-based Micro-F1.
         mask = y_true != none_i
         sentiment_f1[asp] = (
-            f1_score(y_true[mask], y_pred[mask], average='macro', zero_division=0)
+            f1_score(y_true[mask], y_pred[mask], labels=list(range(none_i)),
+                     average='macro', zero_division=0)
             if mask.sum() > 0 else 0.0
         )
 

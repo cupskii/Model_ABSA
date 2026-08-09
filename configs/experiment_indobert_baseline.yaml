@@ -5,7 +5,8 @@ experiment:
   description: >
     IndoBERT fine-tuning ABSA Kompas.id — baseline.
     Hyperparameter default umum (belum di-tuning Optuna untuk dataset ini),
-    tanpa class weighting, tanpa CV (single train/val/test split).
+    dengan class weighting (kelas None 62-93% per aspek — tanpa weighting
+    model cenderung memprediksi None), tanpa CV (single train/val/test split).
     Perbaikan anotasi data terhadap semua aspek
    
 data:
@@ -38,7 +39,7 @@ representation:
 
 model:
   type: "indobert_multitask"
-  use_class_weights: false
+  use_class_weights: true
   save_dir: "model_output"
   params:
     dropout_rate: 0.1

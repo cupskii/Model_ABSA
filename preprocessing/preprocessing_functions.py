@@ -179,8 +179,11 @@ def convert_labels(df: pd.DataFrame) -> pd.DataFrame:
         return {-1: 0, 0: 1, 1: 2}.get(int(v), 3)
 
     def to_binary(v):
+        # Skema biner tidak punya kelas Netral: anotasi 0 (Netral) yang masih
+        # tersisa di data mentah dipetakan eksplisit ke None (bukan fallback
+        # diam-diam) — sebaiknya baris seperti ini dibersihkan di sumber data.
         if pd.isna(v): return 2
-        return {-1: 0, 1: 1}.get(int(v), 2)
+        return {-1: 0, 0: 2, 1: 1}.get(int(v), 2)
 
     for asp in FINAL_ASPECTS:
         col = asp if asp in df.columns else None
