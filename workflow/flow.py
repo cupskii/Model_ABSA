@@ -186,7 +186,8 @@ class ABSARetrainingFlow(FlowSpec):
 
         print(f"\n[7/7] Membandingkan dengan model champion saat ini...")
         self.champion_result = run_compare_champion(
-            self.model_config, self.workflow_config, self.data
+            self.model_config, self.workflow_config, self.data,
+            run_id=self.train_result['run_id'],
         )
 
         self.next(self.end)

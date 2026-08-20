@@ -150,36 +150,40 @@ def _train_indobert(config: dict, data: dict) -> dict:
         avg_val_loss   = _compute_val_loss(model, val_loader, class_weights, device)
 
         _, _, avg_tr_det, avg_tr_sent, _, _ = _eval_loop(model, train_eval_loader, device)
-        det_f1, sent_f1, avg_det, avg_sent, _, _ = _eval_loop(model, val_loader, device)
+        detect, sentiment, avg_det, avg_sent, _, _ = _eval_loop(model, val_loader, device)
 
         # ── Log metrik per epoch ke MLflow ────────────────────────────
-        mlflow.log_metric('train_loss',             avg_train_loss, step=epoch + 1)
-        mlflow.log_metric('val_loss',               avg_val_loss,   step=epoch + 1)
-        mlflow.log_metric('train_avg_detection_f1', avg_tr_det,     step=epoch + 1)
-        mlflow.log_metric('val_avg_detection_f1',   avg_det,        step=epoch + 1)
-        mlflow.log_metric('train_avg_sentiment_f1', avg_tr_sent,    step=epoch + 1)
-        mlflow.log_metric('val_avg_sentiment_f1',   avg_sent,       step=epoch + 1)
+        # _eval_loop sekarang mengembalikan dict {precision,recall,f1} (bukan
+        # cuma F1) per aspek/rata-rata — lihat pipeline/evaluate_model.py.
+        # Early stopping/checkpoint tetap pakai F1 sebagai metrik utama,
+        # tidak berubah; cuma sumbernya sekarang diekstrak dari dict.
+        mlflow.log_metric('train_loss',             avg_train_loss,    step=epoch + 1)
+        mlflow.log_metric('val_loss',               avg_val_loss,      step=epoch + 1)
+        mlflow.log_metric('train_avg_detection_f1', avg_tr_det['f1'],  step=epoch + 1)
+        mlflow.log_metric('val_avg_detection_f1',   avg_det['f1'],     step=epoch + 1)
+        mlflow.log_metric('train_avg_sentiment_f1', avg_tr_sent['f1'], step=epoch + 1)
+        mlflow.log_metric('val_avg_sentiment_f1',   avg_sent['f1'],    step=epoch + 1)
 
         # Breakdown per aspek (val) — satu-satunya informasi yang sebelumnya
         # hanya tersimpan di history.pkl, kini langsung queryable di MLflow.
         for asp in FINAL_ASPECTS:
             asp_key = _asp_key(asp)
-            mlflow.log_metric(f'val_sentiment_f1_{asp_key}', sent_f1[asp], step=epoch + 1)
-            mlflow.log_metric(f'val_detect_f1_{asp_key}',    det_f1[asp],  step=epoch + 1)
+            mlflow.log_metric(f'val_sentiment_f1_{asp_key}', sentiment[asp]['f1'], step=epoch + 1)
+            mlflow.log_metric(f'val_detect_f1_{asp_key}',    detect[asp]['f1'],    step=epoch + 1)
 
         print(f"  Epoch {epoch+1}/{params['num_epochs']} | "
               f"Train Loss: {avg_train_loss:.4f} | Val Loss: {avg_val_loss:.4f} | "
-              f"Det: {avg_det:.4f} | Sent: {avg_sent:.4f}  <- metrik utama")
+              f"Det: {avg_det['f1']:.4f} | Sent: {avg_sent['f1']:.4f}  <- metrik utama")
 
-        if avg_sent > best_sent:
-            best_sent, best_det, patience_cnt = avg_sent, avg_det, 0
+        if avg_sent['f1'] > best_sent:
+            best_sent, best_det, patience_cnt = avg_sent['f1'], avg_det['f1'], 0
             torch.save({
                 'epoch'          : epoch + 1,
                 'model_state'    : model.state_dict(),
                 'val_sent_f1'    : best_sent,
                 'val_det_f1'     : best_det,
-                'sent_f1_per_asp': sent_f1,
-                'det_f1_per_asp' : det_f1,
+                'sent_f1_per_asp': sentiment,
+                'det_f1_per_asp' : detect,
                 'config'         : config,
             }, os.path.join(save_dir, 'best_model.pt'))
             print(f"    Best model tersimpan (Val Sentiment F1: {best_sent:.4f})")

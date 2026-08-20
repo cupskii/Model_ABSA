@@ -41,9 +41,35 @@ import subprocess
 import argparse
 
 import yaml
+import mlflow
+from mlflow.tracking import MlflowClient
 
 _REPO_ROOT = os.path.normpath(os.path.join(os.path.dirname(__file__), '..'))
 _FLOW_PATH = os.path.join(os.path.dirname(__file__), 'flow.py')
+sys.path.insert(0, _REPO_ROOT)
+
+from preprocessing.preprocessing_functions import FINAL_ASPECTS  # noqa: E402
+
+# Sama seperti pipeline/evaluate_model.py::_asp_key() — trigger.py tidak
+# meng-import modul itu (menariknya turut mengimpor torch lewat rantai
+# import lain) sehingga normalisasi nama key metrik diduplikasi sengaja di
+# sini, hanya string manipulation, tanpa dependency berat.
+def _asp_key(asp: str) -> str:
+    return asp.replace(' ', '_').replace('&', 'and').replace('/', '_').lower()
+
+
+# Model_ABSA memakai "subscription_and_pricing"/"technical_and_access" (dari
+# _asp_key di atas); BE_ABSA & frontend memakai "subscription_pricing"/
+# "technical_access" — dipetakan di sini supaya konsumen status API tidak
+# perlu tahu soal perbedaan penamaan ini.
+_ASPECT_KEY_ALIASES = {
+    _asp_key(asp): _asp_key(asp).replace('_and_', '_') for asp in FINAL_ASPECTS
+}
+_METRIC_SUFFIXES = (
+    'detect_precision', 'detect_recall', 'detect_f1',
+    'sentiment_precision', 'sentiment_recall', 'sentiment_f1',
+    'pair_f1', 'aspect_detect_f1',
+)
 
 _UPLOAD_DIR = os.path.join(_REPO_ROOT, 'data', 'retrain_uploads')
 _GENERATED_CONFIG_DIR = os.path.join(_REPO_ROOT, 'configs', '_generated')
@@ -208,6 +234,35 @@ def _read_log_lines(log_path: str) -> list[str]:
         return []
 
 
+def _extract_per_aspect_metrics(all_metrics: dict, prefix: str) -> dict:
+    """Susun metrik per-aspek dari dict flat MLflow (mis. 'test_content_quality_detect_f1')
+    jadi {aspek_ternormalisasi: {detect_f1, sentiment_f1, pair_f1, aspect_detect_f1}}.
+
+    Dibangun dari 5 aspek yang sudah diketahui (bukan parsing string bebas)
+    karena nama aspek sendiri mengandung underscore (mis.
+    'subscription_and_pricing'), jadi split-by-underscore tidak aman."""
+    result = {}
+    for model_key, normalized_key in _ASPECT_KEY_ALIASES.items():
+        aspect_metrics = {}
+        for suffix in _METRIC_SUFFIXES:
+            metric_key = f"{prefix}{model_key}_{suffix}"
+            if metric_key in all_metrics:
+                aspect_metrics[suffix] = all_metrics[metric_key]
+        if aspect_metrics:
+            result[normalized_key] = aspect_metrics
+    return result
+
+
+def _fetch_mlflow_metrics(mlflow_run_id: str) -> dict:
+    tracking_uri = os.environ.get('MLFLOW_TRACKING_URI', 'http://localhost:5000')
+    mlflow.set_tracking_uri(tracking_uri)
+    try:
+        return MlflowClient().get_run(mlflow_run_id).data.metrics
+    except Exception as exc:
+        print(f"  [peringatan] gagal mengambil metrik detail dari MLflow run {mlflow_run_id}: {exc}")
+        return {}
+
+
 def get_run_status(run_id: str) -> dict | None:
     """
     Bangun status step-by-step murni dari (a) apakah proses masih hidup dan
@@ -253,6 +308,8 @@ def get_run_status(run_id: str) -> dict | None:
     champion = None
     mlflow_run_id = None
     mlflow_run_url = None
+    metrics_detail = None
+    champion_metrics_detail = None
     if overall_status == 'completed':
         metrics = {}
         for name in ('test_sentiment_f1', 'test_detection_f1'):
@@ -281,6 +338,17 @@ def get_run_status(run_id: str) -> dict | None:
         if url_match and url_match.group(1) != 'None':
             mlflow_run_url = url_match.group(1)
 
+        # Metrik per-aspek diambil langsung dari MLflow (bukan regex atas
+        # teks log seperti dua metrik agregat di atas) — jauh lebih robust
+        # untuk ~20 angka per model (5 aspek x 4 metrik) dan mengambil apa
+        # yang sudah dicatat compare_champion.py/evaluate_model.py.
+        if mlflow_run_id:
+            all_metrics = _fetch_mlflow_metrics(mlflow_run_id)
+            if all_metrics:
+                metrics_detail = _extract_per_aspect_metrics(all_metrics, prefix='test_')
+                if champion and champion['exists']:
+                    champion_metrics_detail = _extract_per_aspect_metrics(all_metrics, prefix='champion_test_')
+
     if returncode is not None:
         try:
             rec['log_fh'].close()
@@ -293,7 +361,9 @@ def get_run_status(run_id: str) -> dict | None:
         'current_step':   current_step,
         'steps':          steps,
         'metrics':        metrics,
+        'metrics_detail': metrics_detail,
         'champion':       champion,
+        'champion_metrics_detail': champion_metrics_detail,
         'mlflow_run_id':  mlflow_run_id,
         'mlflow_run_url': mlflow_run_url,
         'exit_code':      returncode,

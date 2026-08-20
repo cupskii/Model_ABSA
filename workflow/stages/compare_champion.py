@@ -43,17 +43,30 @@ def _download_and_reconstruct(model_uri: str, device: torch.device) -> tuple:
     return load_model_from_checkpoint(checkpoint_dir, device)
 
 
-def run_compare_champion(model_config: dict, workflow_config: dict, data: dict) -> dict:
+def run_compare_champion(model_config: dict, workflow_config: dict, data: dict, run_id: str | None = None) -> dict:
     """
     Bandingkan model champion saat ini (alias MLflow) dengan model baru,
     pada test split yang sama (`data`).
+
+    Sebelumnya cuma dua metrik agregat (Sentiment/Detection F1) yang
+    dikembalikan — metrik per-aspek dari compute_test_metrics() dibuang.
+    Developer bisa menekan "Promote" atas model yang agregatnya naik padahal
+    salah satu dari 5 aspek justru regresi. Sekarang seluruh dict flat
+    (agregat + per-aspek) dikembalikan apa adanya, dan kalau `run_id`
+    diberikan juga dicatat ke MLflow run yang sama dengan prefiks
+    "champion_" supaya trigger.py bisa mengambilnya lewat MLflow API
+    (bukan regex atas teks log) tanpa mengubah run historis milik champion
+    itu sendiri — ini reevaluasi pada test split RUN INI, bukan skor asli
+    champion saat pertama kali dilatih.
 
     Returns
     -------
     dict:
       champion_exists : bool
       champion_version: str | None
-      metrics         : dict | None — {'test_mean_sentiment_f1', 'test_mean_detect_f1'}
+      metrics         : dict | None — flat, sama format dengan compute_test_metrics()
+                         (test_mean_sentiment_f1, test_mean_detect_f1, dan
+                         test_{aspek}_{detect_f1,sentiment_f1,pair_f1,aspect_detect_f1})
       reason          : str — penjelasan (dipakai kalau champion_exists=False)
     """
     mlflow_wf  = workflow_config.get('mlflow', {})
@@ -101,12 +114,13 @@ def run_compare_champion(model_config: dict, workflow_config: dict, data: dict) 
 
     champion_metrics = compute_test_metrics(champion_model, champion_tokenizer, champion_cfg, data)
 
+    if run_id:
+        with mlflow.start_run(run_id=run_id):
+            mlflow.log_metrics({f"champion_{k}": v for k, v in champion_metrics.items()})
+
     return {
         'champion_exists': True,
         'champion_version': champion_version_info.version,
-        'metrics': {
-            'test_mean_sentiment_f1': champion_metrics.get('test_mean_sentiment_f1', 0.0),
-            'test_mean_detect_f1': champion_metrics.get('test_mean_detect_f1', 0.0),
-        },
+        'metrics': champion_metrics,
         'reason': f"Model champion v{champion_version_info.version} berhasil dievaluasi ulang.",
     }
