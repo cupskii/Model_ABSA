@@ -57,6 +57,18 @@ def validate_data(config: dict) -> dict:
                     f"{sorted(invalid.unique().tolist())}"
                 )
 
+    # Arsitektur model saat ini memakai tiga kelas untuk Technical & Access
+    # (Negatif, Positif, None). Label anotasi Netral (0) tetap boleh masuk agar
+    # pipeline lama kompatibel, tetapi convert_labels() akan memetakannya ke
+    # kelas None. Tampilkan ini secara eksplisit agar tidak terjadi diam-diam.
+    if 'Technical & Access' in df.columns:
+        n_technical_neutral = int((df['Technical & Access'] == 0).sum())
+        if n_technical_neutral:
+            report['issues'].append(
+                f"{n_technical_neutral} label Netral pada 'Technical & Access' "
+                "akan dipetakan ke None oleh skema model 3 kelas saat ini"
+            )
+
     return report
 
 
