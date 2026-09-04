@@ -1,0 +1,61 @@
+experiment:
+  name: "indobert_absa"
+  run_name: "dataset_fuiyohh_baseline"
+  seed: 42
+  description: >
+    Baseline IndoBERT multitask pada dataset_fuiyohh. Hyperparameter dibuat
+    sama dengan baseline dataset_final agar perbandingan antar-dataset adil;
+    konfigurasi ini belum merupakan hasil tuning pada dataset_fuiyohh.
+
+data:
+  path: "data/raw/dataset_fuiyohh.csv"
+  text_column: "Komentar"
+  split:
+    # Multilabel-stratified single split: 70% train, 15% validation, 15% test.
+    train_ratio: 0.70
+    val_ratio: 0.15
+    random_state: 42
+
+preprocessing:
+  remove_emoji: true
+  lowercase: true
+  remove_url_mention: true
+  compress_repeated_chars: true
+  remove_special_chars: true
+  normalize_slang: true
+  # Negasi dan konteks kalimat dipertahankan untuk encoder kontekstual.
+  remove_stopwords: false
+
+representation:
+  type: "indobert"
+  model_name: "indobenchmark/indobert-base-p1"
+  # Kunci ke commit hash Hugging Face setelah baseline pertama jika perlu
+  # reproduksibilitas jangka panjang.
+  model_revision: "main"
+  # Dataset pendek (p95 sekitar 33 kata); 128 memberi ruang yang memadai.
+  max_length: 128
+
+model:
+  type: "indobert_multitask"
+  # Tetap false untuk perbandingan baseline yang identik dengan config lama.
+  # Uji use_class_weights: true sebagai eksperimen terpisah karena kelas timpang.
+  use_class_weights: false
+  # Direktori terpisah agar checkpoint baseline sebelumnya tidak tertimpa.
+  save_dir: "model_output_fuiyohh"
+  params:
+    # Baseline umum BERT; belum dituning khusus pada dataset_fuiyohh.
+    dropout_rate: 0.1
+    batch_size: 16
+    learning_rate: 2.0e-5
+    num_epochs: 20
+    warmup_ratio: 0.1
+    weight_decay: 0.01
+    max_grad_norm: 1.0
+    patience: 4
+
+mlflow:
+  # Langsung bekerja di Colab tanpa server eksternal. Override dengan env var
+  # MLFLOW_TRACKING_URI jika ingin mencatat ke server MLflow remote.
+  tracking_uri: "sqlite:///mlflow_fuiyohh.db"
+  registry_name: "absa_indobert"
+  gdrive_dir: "absa_models"

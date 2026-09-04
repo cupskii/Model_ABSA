@@ -7,9 +7,6 @@ experiment:
     sama rata di antara seluruh kelasnya (termasuk 'None'), tanpa melihat
     data sama sekali. Lower bound pembanding untuk model IndoBERT.
 
-# data & preprocessing harus SAMA PERSIS dengan konfigurasi eksperimen model
-# (configs/experiment_indobert_baseline.yaml) supaya test split yang dinilai
-# identik dan perbandingan metrik valid.
 data:
   path: "data/raw/dataset_final.csv"
   text_column: "Komentar"
