@@ -235,12 +235,33 @@ def run_extract_data(workflow_config: dict, model_config: dict) -> dict:
     existing_path = model_config['data']['path']
 
     if not ext_cfg.get('enabled', False):
-        print("  [DILEWATI] data_extraction.enabled=false — komponen monitoring "
-              "belum tersedia. Pipeline lanjut dengan dataset yang ada.")
+        retraining_input = model_config.get('retraining_input') or {}
+        n_new = int(retraining_input.get('new_sample_count') or 0)
+        n_existing = int(retraining_input.get('pool_rows_before') or 0)
+        combined_rows = int(retraining_input.get('combined_rows_used') or 0)
+        ratio = n_new / n_existing if n_existing > 0 else (float('inf') if n_new else 0.0)
+        sufficient = (
+            n_new >= int(suf_cfg['min_new_samples'])
+            or ratio >= float(suf_cfg['min_ratio_of_existing'])
+        )
+
+        print("  [DILEWATI] data_extraction.enabled=false — menggunakan snapshot "
+              "dataset yang sudah dibentuk dan dibekukan oleh BE_ABSA.")
+        print(
+            f"  Metadata snapshot → data baru: {n_new} | pool sebelumnya: "
+            f"{n_existing} | gabungan: {combined_rows or 'tidak diketahui'} | "
+            f"versi: {retraining_input.get('dataset_version') or 'tidak diketahui'}"
+        )
+        print(
+            f"  Kecukupan data: {'CUKUP' if sufficient else 'BELUM CUKUP'} — "
+            f"{n_new} sampel baru ({ratio:.1%} dari pool sebelumnya); "
+            f"ambang {suf_cfg['min_new_samples']} sampel atau "
+            f"{float(suf_cfg['min_ratio_of_existing']):.1%}."
+        )
         return {
             'dataset_path'   : existing_path,
-            'n_new_samples'  : 0,
-            'data_sufficient': False,
+            'n_new_samples'  : n_new,
+            'data_sufficient': sufficient,
             'extraction_ts'  : None,
         }
 

@@ -184,6 +184,7 @@ class TestTrainModel:
         with patch.object(stage, 'mlflow', mock_mlflow), \
              patch.object(stage, 'train_model', return_value=trained) as mock_train, \
              patch.object(stage, 'set_seed'), \
+             patch.object(stage, '_wait_for_mlflow'), \
              patch.object(stage.torch.cuda, 'is_available', return_value=True):
             result = stage.run_train_model(model_config, {'df_train': None})
 

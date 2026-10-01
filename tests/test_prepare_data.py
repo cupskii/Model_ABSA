@@ -1,9 +1,11 @@
 import pandas as pd
+from unittest.mock import patch
 
 from pipeline.prepare_data import (
     compute_sentiment_proportions,
     compute_split_sentiment_proportions,
 )
+from preprocessing.preprocessing_functions import FINAL_ASPECTS
 
 
 def test_compute_sentiment_proportions_includes_none_in_denominator():
@@ -71,3 +73,41 @@ def test_compute_split_sentiment_proportions_separates_each_split():
         'count': 1,
         'percentage': 50.0,
     }
+
+
+def test_prepare_data_preserves_preassigned_splits(tmp_path):
+    from pipeline.prepare_data import prepare_data
+
+    rows = 20
+    df = pd.DataFrame({
+        'Komentar': [f'ulasan {i}' for i in range(rows)],
+        '__split': ['train'] * 14 + ['val'] * 3 + ['test'] * 3,
+    })
+    for aspect in FINAL_ASPECTS:
+        df[aspect] = [(-1, 0, 1, None)[i % 4] for i in range(rows)]
+    path = tmp_path / 'versioned.csv'
+    df.to_csv(path, index=False)
+    config = {
+        'data': {
+            'path': str(path),
+            'text_column': 'Komentar',
+            'split': {'train_ratio': .70, 'val_ratio': .15, 'random_state': 42},
+        },
+        'preprocessing': {
+            'remove_emoji': False,
+            'lowercase': False,
+            'remove_url_mention': False,
+            'compress_repeated_chars': False,
+            'remove_special_chars': False,
+            'normalize_slang': False,
+            'remove_stopwords': False,
+        },
+    }
+
+    with patch('pipeline.prepare_data.stratified_split') as split_mock:
+        result = prepare_data(config)
+
+    split_mock.assert_not_called()
+    assert len(result['df_train']) == 14
+    assert len(result['df_val']) == 3
+    assert len(result['df_test']) == 3

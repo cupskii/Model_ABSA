@@ -14,6 +14,7 @@ SENTIMENT_LABELS = {
     1: 'Positif',
 }
 NONE_LABEL = 'None'
+SPLIT_COLUMN = '__split'
 
 
 def compute_sentiment_proportions(df: pd.DataFrame) -> dict:
@@ -161,13 +162,28 @@ def prepare_data(config: dict) -> dict:
     # Konversi label anotasi ke indeks kelas
     df = convert_labels(df)
 
-    # Stratified split
-    df_train, df_val, df_test = stratified_split(
-        df,
-        train_ratio  = split_cfg['train_ratio'],
-        val_ratio    = split_cfg['val_ratio'],
-        random_state = split_cfg['random_state'],
-    )
+    # Dataset retraining dari BE_ABSA sudah membawa lineage split per baris.
+    # Pertahankan split historis dan split data baru itu apa adanya; dataset
+    # legacy tanpa metadata ini tetap memakai stratified split dari nol.
+    if SPLIT_COLUMN in df.columns:
+        normalized_split = df[SPLIT_COLUMN].astype(str).str.lower()
+        invalid = sorted(set(normalized_split) - {'train', 'val', 'test'})
+        if invalid:
+            raise ValueError(f'Nilai {SPLIT_COLUMN} tidak valid: {invalid}')
+        df_train = df.loc[normalized_split == 'train'].copy()
+        df_val = df.loc[normalized_split == 'val'].copy()
+        df_test = df.loc[normalized_split == 'test'].copy()
+        if any(part.empty for part in (df_train, df_val, df_test)):
+            raise ValueError(
+                f'Dataset dengan {SPLIT_COLUMN} harus memiliki baris train, val, dan test.'
+            )
+    else:
+        df_train, df_val, df_test = stratified_split(
+            df,
+            train_ratio  = split_cfg['train_ratio'],
+            val_ratio    = split_cfg['val_ratio'],
+            random_state = split_cfg['random_state'],
+        )
 
     # Distribusi dihitung per split dari label anotasi asli. Nilai label aspek
     # masih tersedia meskipun kolom indeks kelas sudah ditambahkan.

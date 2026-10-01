@@ -13,16 +13,51 @@ dan dimuat ulang oleh tahap evaluate_model.
 
 import os
 import sys
+import time
 from typing import Optional
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..'))
 
 import mlflow
 import mlflow.pytorch
+import requests
 import torch
 
 from model.absa_model import set_seed
 from pipeline.train_model import train_model
 from run_experiment import flatten_config, get_git_commit
+
+_MLFLOW_HEALTHCHECK_TIMEOUT = 30.0
+_MLFLOW_HEALTHCHECK_INTERVAL = 3.0
+_MODAL_REMOTE_MAX_ATTEMPTS = 2
+
+
+def _wait_for_mlflow(tracking_uri: str, timeout: float = _MLFLOW_HEALTHCHECK_TIMEOUT) -> None:
+    """Pastikan MLflow benar-benar terjangkau sebelum training dimulai/dilanjutkan.
+
+    Ditambahkan setelah insiden nyata: MLFLOW_TRACKING_URI diekspos lewat
+    Cloudflare Quick Tunnel (ephemeral, bisa mati kapan saja tanpa peringatan
+    — lihat start_mlflow_tunnel.ps1), dan saat itu mati di tengah training,
+    kegagalannya baru ketahuan setelah training selesai/di tengah jalan lewat
+    traceback mlflow yang tidak jelas. Gagal cepat & jelas di sini (dicoba
+    ulang beberapa kali dulu untuk kedip jaringan sesaat) jauh lebih murah
+    daripada baru gagal setelah waktu training/GPU Modal terbuang."""
+    deadline = time.monotonic() + timeout
+    last_error: Optional[BaseException] = None
+    while time.monotonic() < deadline:
+        try:
+            resp = requests.get(f"{tracking_uri.rstrip('/')}/health", timeout=5)
+            if resp.ok:
+                return
+            last_error = RuntimeError(f"HTTP {resp.status_code}")
+        except requests.RequestException as exc:
+            last_error = exc
+        time.sleep(_MLFLOW_HEALTHCHECK_INTERVAL)
+    raise RuntimeError(
+        f"MLflow tidak terjangkau di {tracking_uri} setelah dicoba ulang selama "
+        f"{timeout:.0f} detik — cek apakah tunnel/koneksinya masih hidup (mis. "
+        f"Cloudflare Quick Tunnel mati, perlu dibuat ulang lalu update .env + "
+        f"Modal Secret 'absa-mlflow-creds' dengan URL baru). Error terakhir: {last_error}"
+    ) from last_error
 
 
 def _configure_artifact_store_env() -> None:
@@ -105,14 +140,48 @@ def _train_remote(model_config: dict, data: dict, git_commit: Optional[str] = No
 
     git_commit = git_commit or get_git_commit()
 
-    print("  Tidak ada GPU lokal terdeteksi — melatih via GPU cloud Modal...")
-    train_fn = modal.Function.from_name('absa-training', 'train_remote')
-    train_result = train_fn.remote(model_config, data, git_commit, run_id)
-
     mlflow_cfg   = model_config.get('mlflow', {})
     tracking_uri = os.environ.get('MLFLOW_TRACKING_URI') or mlflow_cfg.get(
         'tracking_uri', 'http://localhost:5000',
     )
+    # Gagal cepat SEBELUM memicu task GPU berbayar kalau MLflow (dan tunnel-nya)
+    # sudah mati — daripada baru ketahuan setelah training di Modal selesai.
+    _wait_for_mlflow(tracking_uri)
+
+    print("  Tidak ada GPU lokal terdeteksi — melatih via GPU cloud Modal...")
+    train_fn = modal.Function.from_name('absa-training', 'train_remote')
+
+    last_error: Optional[BaseException] = None
+    train_result = None
+    for attempt in range(1, _MODAL_REMOTE_MAX_ATTEMPTS + 1):
+        try:
+            train_result = train_fn.remote(model_config, data, git_commit, run_id)
+            break
+        except Exception as exc:  # noqa: BLE001 — dicek isinya di bawah, bukan ditelan diam-diam
+            last_error = exc
+            # Modal me-raise ulang exception dari dalam kontainer remote-nya
+            # sendiri (termasuk mlflow.exceptions.MlflowException kalau tunnel
+            # MLflow mati di tengah training) — deteksi lewat pesan error karena
+            # tipe aslinya bisa bermacam-macam (ConnectionError, NameResolutionError,
+            # MlflowException, dll), semuanya berujung pesan yang menyinggung DNS/koneksi.
+            text = str(exc).lower()
+            is_connectivity = any(
+                token in text for token in (
+                    'name resolution', 'nameresolutionerror', 'failed to resolve',
+                    'connection', 'max retries exceeded', 'timeout',
+                )
+            )
+            if not is_connectivity or attempt == _MODAL_REMOTE_MAX_ATTEMPTS:
+                raise
+            print(
+                f"  [percobaan {attempt}/{_MODAL_REMOTE_MAX_ATTEMPTS}] Training di Modal gagal "
+                f"karena masalah koneksi ({exc}) — mengecek ulang MLflow lalu mencoba lagi..."
+            )
+            _wait_for_mlflow(tracking_uri)
+
+    if train_result is None:
+        raise last_error  # tidak seharusnya tercapai (loop di atas selalu raise/break)
+
     mlflow.set_tracking_uri(tracking_uri)
 
     save_dir = train_result['save_dir']
@@ -166,6 +235,7 @@ def _train_local(model_config: dict, data: dict, git_commit: Optional[str] = Non
     tracking_uri = os.environ.get('MLFLOW_TRACKING_URI') or mlflow_cfg.get(
         'tracking_uri', 'http://localhost:5000',
     )
+    _wait_for_mlflow(tracking_uri)
     mlflow.set_tracking_uri(tracking_uri)
     mlflow.set_experiment(model_config['experiment']['name'])
 

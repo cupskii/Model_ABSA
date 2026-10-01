@@ -163,6 +163,10 @@ def trigger_pipeline_with_dataset(
     reason: str                = 'manual',
     config_path: str           = 'configs/experiment_indobert_baseline.yaml',
     workflow_config_path: str  = 'workflow/pipeline_config.yaml',
+    new_sample_count: int | None = None,
+    pool_rows_before: int | None = None,
+    combined_rows_used: int | None = None,
+    dataset_version: str | None = None,
 ) -> dict:
     """
     Picu eksekusi pipeline dengan dataset baru yang dikirim langsung sebagai
@@ -186,6 +190,19 @@ def trigger_pipeline_with_dataset(
 
     model_config = _load_yaml(_resolve_path(config_path))
     model_config['data']['path'] = dataset_path
+    # Metadata lineage berasal dari BE_ABSA. Dataset yang diunggah sudah
+    # merupakan snapshot gabungan replay pool + anotasi baru, sehingga step
+    # ekstraksi tidak perlu menebak jumlah data baru dari ukuran file total.
+    model_config['retraining_input'] = {
+        key: value for key, value in {
+            'new_sample_count': new_sample_count,
+            'pool_rows_before': pool_rows_before,
+            'combined_rows_used': combined_rows_used,
+            'dataset_version': dataset_version,
+            'source': 'be_absa_snapshot',
+        }.items()
+        if value is not None
+    }
     generated_config_path = os.path.join(_GENERATED_CONFIG_DIR, f'{run_id}.yaml')
     with open(generated_config_path, 'w', encoding='utf-8') as f:
         yaml.safe_dump(model_config, f, allow_unicode=True)
@@ -415,15 +432,17 @@ def create_app():
         detection_f1 : float | None = None
 
     class RunStatusResponse(BaseModel):
-        run_id         : str
-        overall_status : str
-        current_step   : str | None = None
-        steps          : list[StepStatus]
-        metrics        : dict | None = None
-        champion       : ChampionStatus | None = None
-        mlflow_run_id  : str | None = None
-        mlflow_run_url : str | None = None
-        exit_code      : int | None = None
+        run_id                  : str
+        overall_status          : str
+        current_step            : str | None = None
+        steps                   : list[StepStatus]
+        metrics                 : dict | None = None
+        champion                : ChampionStatus | None = None
+        mlflow_run_id           : str | None = None
+        mlflow_run_url          : str | None = None
+        exit_code               : int | None = None
+        metrics_detail          : dict | None = None
+        champion_metrics_detail : dict | None = None
 
     class RunLogsResponse(BaseModel):
         run_id   : str
@@ -441,6 +460,10 @@ def create_app():
         reason: str                     = Form('manual'),
         config_path: str                = Form('configs/experiment_indobert_baseline.yaml'),
         workflow_config_path: str        = Form('workflow/pipeline_config.yaml'),
+        new_sample_count: int | None     = Form(None),
+        pool_rows_before: int | None     = Form(None),
+        combined_rows_used: int | None  = Form(None),
+        dataset_version: str | None      = Form(None),
     ):
         dataset_bytes = await file.read()
         result = trigger_pipeline_with_dataset(
@@ -449,6 +472,10 @@ def create_app():
             reason                 = reason,
             config_path            = config_path,
             workflow_config_path   = workflow_config_path,
+            new_sample_count       = new_sample_count,
+            pool_rows_before       = pool_rows_before,
+            combined_rows_used     = combined_rows_used,
+            dataset_version        = dataset_version,
         )
         return TriggerResponse(
             run_id  = result['run_id'],

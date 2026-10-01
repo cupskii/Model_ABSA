@@ -7,19 +7,6 @@ VALID_LABEL_VALUES = {-1, 0, 1}
 
 
 def validate_data(config: dict) -> dict:
-    """
-    Muat dataset dan verifikasi bahwa dataset memenuhi kriteria berikut:
-      1. Kolom teks ada dan tidak ada baris kosong.
-      2. Seluruh kolom label aspek ada.
-      3. Nilai label yang ada hanya -1, 0, 1, atau NaN.
-
-    Returns
-    -------
-    dict dengan kunci:
-      total_rows : int   — jumlah baris dataset
-      issues     : list  — daftar masalah yang ditemukan
-      passed     : bool  — True jika tidak ada masalah kritis
-    """
     data_path = config['data']['path']
     text_col  = config['data']['text_column']
 
@@ -56,11 +43,6 @@ def validate_data(config: dict) -> dict:
                     f"Kolom '{asp}' memiliki nilai tidak valid: "
                     f"{sorted(invalid.unique().tolist())}"
                 )
-
-    # Arsitektur model saat ini memakai tiga kelas untuk Technical & Access
-    # (Negatif, Positif, None). Label anotasi Netral (0) tetap boleh masuk agar
-    # pipeline lama kompatibel, tetapi convert_labels() akan memetakannya ke
-    # kelas None. Tampilkan ini secara eksplisit agar tidak terjadi diam-diam.
     if 'Technical & Access' in df.columns:
         n_technical_neutral = int((df['Technical & Access'] == 0).sum())
         if n_technical_neutral:
